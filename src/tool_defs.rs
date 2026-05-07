@@ -1,53 +1,179 @@
-//! Build the SDK [`ToolDef`] list advertised in the
+//! Static [`ToolDef`] catalogue advertised in the
 //! `initialize` reply.
 //!
-//! Each entry is derived from the corresponding in-tree
-//! `Browser*Tool::tool_def()` output (which returns
-//! `nexo_llm::ToolDef { name, description, parameters }`),
-//! converted into the wire-shape SDK [`ToolDef`]
-//! (`name`, `description`, `input_schema`).
-//!
-//! Adding a tool requires updating two things in lockstep:
-//!   1. The `Browser*Tool` impl in `tool.rs`.
-//!   2. This list — the `extends.tools` allowlist in the manifest
-//!      ALSO needs the new name (the host kills the subprocess
-//!      otherwise).
-//! The unit test below asserts the count + canonical names.
+//! Each entry is hand-rolled rather than derived from a per-tool
+//! `BrowserNavigateTool::tool_def()` accessor (which the in-tree
+//! crate had) so the standalone repo doesn't carry the
+//! `nexo-core::Plugin` / `nexo-llm::ToolDef` indirection layers.
+//! Adding a tool requires editing this file + `dispatch.rs` in
+//! lockstep — the test asserts the count matches.
 
 use nexo_microapp_sdk::plugin::ToolDef;
+use serde_json::json;
 
-use crate::tool::{
-    BrowserClickTool, BrowserCurrentUrlTool, BrowserEvaluateTool, BrowserFillTool,
-    BrowserGoBackTool, BrowserGoForwardTool, BrowserNavigateTool, BrowserPressKeyTool,
-    BrowserScreenshotTool, BrowserScrollToTool, BrowserSnapshotTool, BrowserWaitForTool,
-};
-
-/// 12 entries; sorted alphabetically for diff stability.
 pub fn browser_tool_defs() -> Vec<ToolDef> {
     vec![
-        from_llm(&BrowserClickTool::tool_def()),
-        from_llm(&BrowserCurrentUrlTool::tool_def()),
-        from_llm(&BrowserEvaluateTool::tool_def()),
-        from_llm(&BrowserFillTool::tool_def()),
-        from_llm(&BrowserGoBackTool::tool_def()),
-        from_llm(&BrowserGoForwardTool::tool_def()),
-        from_llm(&BrowserNavigateTool::tool_def()),
-        from_llm(&BrowserPressKeyTool::tool_def()),
-        from_llm(&BrowserScreenshotTool::tool_def()),
-        from_llm(&BrowserScrollToTool::tool_def()),
-        from_llm(&BrowserSnapshotTool::tool_def()),
-        from_llm(&BrowserWaitForTool::tool_def()),
+        ToolDef {
+            name: "browser_click".into(),
+            description: "Click a DOM element. `target` is either an element \
+                reference emitted by `browser_snapshot` (e.g. `@e12`) or a \
+                CSS selector (e.g. `button[type=submit]`). Prefer element \
+                refs — they're stable across DOM mutations within a single \
+                snapshot turn.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Element ref (`@eN`) or CSS selector."
+                    }
+                },
+                "required": ["target"]
+            }),
+        },
+        ToolDef {
+            name: "browser_current_url".into(),
+            description: "Return the URL of the active page.".into(),
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        ToolDef {
+            name: "browser_evaluate".into(),
+            description: "Execute JavaScript in the page and return the \
+                result as JSON. Use for reading DOM properties, computed \
+                styles, or computing derived values without a custom tool.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "script": {
+                        "type": "string",
+                        "description": "JS expression evaluated in page context."
+                    }
+                },
+                "required": ["script"]
+            }),
+        },
+        ToolDef {
+            name: "browser_fill".into(),
+            description: "Type a value into an input / textarea / \
+                contenteditable element. `target` follows the same rules \
+                as `browser_click`. `value` replaces the element's current \
+                contents — there's no append mode. For multi-step forms, \
+                call once per field.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Element ref (`@eN`) or CSS selector for the input."
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Text to type. Special keys (Enter, Tab) are NOT interpreted — use `browser_press_key` for keyboard shortcuts."
+                    }
+                },
+                "required": ["target", "value"]
+            }),
+        },
+        ToolDef {
+            name: "browser_go_back".into(),
+            description: "Navigate one step back in the browser history \
+                (equivalent to clicking the back button). Returns `{ok}`.".into(),
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        ToolDef {
+            name: "browser_go_forward".into(),
+            description: "Navigate one step forward in the browser history. \
+                Only succeeds if the user (or a prior tool call) just went \
+                back. Returns `{ok}`.".into(),
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        ToolDef {
+            name: "browser_navigate".into(),
+            description: "Navigate the active page to a URL. Waits for the \
+                main document `load` event before returning.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Absolute URL including scheme."
+                    }
+                },
+                "required": ["url"]
+            }),
+        },
+        ToolDef {
+            name: "browser_press_key".into(),
+            description: "Synthesize a keyboard event on the active \
+                element. `key` is either a known named key (Enter / Tab / \
+                Escape / ArrowUp / ArrowDown / ArrowLeft / ArrowRight / \
+                Backspace / Delete / Home / End / PageUp / PageDown / \
+                Space) or a single character.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Named key or single character."
+                    }
+                },
+                "required": ["key"]
+            }),
+        },
+        ToolDef {
+            name: "browser_screenshot".into(),
+            description: "Capture a PNG screenshot of the viewport. \
+                Returns `{ok: true, png_base64: \"...\"}` so the LLM can \
+                attach the image to its reply.".into(),
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        ToolDef {
+            name: "browser_scroll_to".into(),
+            description: "Scroll a target element into view. `target` \
+                follows the same rules as `browser_click`.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Element ref (`@eN`) or CSS selector."
+                    }
+                },
+                "required": ["target"]
+            }),
+        },
+        ToolDef {
+            name: "browser_snapshot".into(),
+            description: "Capture a textual DOM tree where every \
+                actionable element has a stable ref like `@e12`. Refs \
+                are valid until the next DOM mutation. Use this before \
+                `browser_click` / `browser_fill` so the LLM can pick \
+                targets without inventing CSS selectors.".into(),
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        ToolDef {
+            name: "browser_wait_for".into(),
+            description: "Poll a CSS selector every 250 ms until it \
+                appears in the DOM, up to `timeout_ms` (default 5000). \
+                Returns `{ok: true, found: bool}`. Use before \
+                `browser_click` on elements that arrive after an XHR / \
+                SPA navigation.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector the element must match."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "description": "Max wait in milliseconds. Default 5000, capped at 30000."
+                    }
+                },
+                "required": ["selector"]
+            }),
+        },
     ]
-}
-
-fn from_llm(def: &nexo_llm::ToolDef) -> ToolDef {
-    ToolDef {
-        name: def.name.clone(),
-        description: def.description.clone(),
-        // `nexo_llm::ToolDef.parameters` is the JSON Schema —
-        // rename to `input_schema` for the wire shape.
-        input_schema: def.parameters.clone(),
-    }
 }
 
 #[cfg(test)]
@@ -56,25 +182,19 @@ mod tests {
 
     #[test]
     fn browser_tool_defs_returns_twelve_entries() {
-        let defs = browser_tool_defs();
-        assert_eq!(defs.len(), 12);
+        assert_eq!(browser_tool_defs().len(), 12);
     }
 
     #[test]
     fn browser_tool_defs_names_are_canonical_and_sorted() {
         let defs = browser_tool_defs();
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
-        // Sorted alphabetically — guards against a refactor
-        // accidentally reordering and breaking diffs.
         let mut sorted = names.clone();
         sorted.sort_unstable();
         assert_eq!(names, sorted);
-        // Sentinel — confirms 81.3 namespace policy
-        // (`browser_*` prefix per plugin id).
         for n in &names {
             assert!(n.starts_with("browser_"), "tool {n} violates namespace policy");
         }
-        // Exact list — guards against accidental drop / rename.
         assert_eq!(
             names,
             [
@@ -97,10 +217,8 @@ mod tests {
     #[test]
     fn browser_tool_defs_all_have_object_schema() {
         for def in browser_tool_defs() {
-            assert_eq!(
-                def.input_schema["type"], "object",
-                "tool {} input_schema is not an object", def.name
-            );
+            assert_eq!(def.input_schema["type"], "object",
+                "tool {} input_schema is not an object", def.name);
         }
     }
 }

@@ -53,25 +53,13 @@ reqwest           = { version = "0.12", default-features = false, features = ["r
 futures           = "0.3"
 uuid              = { version = "1", features = ["serde", "v4"] }
 
-# nexo-* deps as dual `version + path` so the repo:
-#   - builds in CI alongside a `proyecto/` sibling checkout
-#     (path resolves first when present);
-#   - resolves from crates.io once published versions advance to
-#     match the in-tree shape (currently nexo-core 0.1.1 on
-#     crates.io is incompatible with nexo-mcp 0.1.2 — full
-#     cascade publish is Phase 83.14.b territory).
-#
-# Already-published in 81.17.c.crates-publish:
-#   - nexo-cdp v0.1.0
-#   - nexo-microapp-sdk v0.1.1
-nexo-microapp-sdk    = { version = "0.1.1", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
-nexo-broker          = { version = "0.1.2", path = "../proyecto/crates/broker" }
-nexo-cdp             = { version = "0.1.0", path = "../proyecto/crates/cdp" }
-nexo-config          = { version = "0.1.4", path = "../proyecto/crates/config" }
-nexo-core            = { version = "0.1.1", path = "../proyecto/crates/core" }
-nexo-llm             = { version = "0.1.2", path = "../proyecto/crates/llm" }
-nexo-resilience      = { version = "0.1.1", path = "../proyecto/crates/resilience" }
-nexo-plugin-manifest = { version = "0.1.0", path = "../proyecto/crates/plugin-manifest" }
+# Slim dep set — only what the subprocess actually needs.
+# All four resolve from crates.io alone; no proyecto sibling
+# checkout required for an external operator's `cargo install`.
+nexo-microapp-sdk = { version = "0.1.2", features = ["plugin"] }
+nexo-broker       = "0.1.2"
+nexo-cdp          = "0.1.0"
+nexo-config       = "0.1.4"
 
 # toml: the copied plugin.rs uses `toml::from_str` to parse the
 # bundled manifest.
