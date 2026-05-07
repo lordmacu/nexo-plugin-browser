@@ -143,19 +143,39 @@ defs 1:1.
 
 ## Latency budget
 
-**Placeholder.** The bench in `benches/tool_latency.rs` measures
-in-process direct CDP vs subprocess RPC. Run on representative hardware
-and populate this section.
+`benches/tool_latency.rs` measures `tool.invoke` round-trip latency over
+the subprocess stdio bridge. Run with:
+
+```bash
+cargo bench --bench tool_latency
+# Live Chromium variant (gated):
+CHROMIUM_BIN=/usr/bin/chromium cargo bench --bench tool_latency
+```
+
+### Baseline — pure SDK dispatch (pre-Chrome path)
+
+Sample on Cristian's dev laptop (Linux x86_64, 2026-05-07):
 
 ```
-TODO: cargo bench  (post-extraction; follow-up 81.17.c.latency-numbers)
+browser_press_key (rejected)   n=200   avg=164µs   p95=156µs   p99=4.2ms
+```
 
-| Tool                  | In-tree direct (ms p95) | Subprocess (ms p95) | Delta |
-|-----------------------|-------------------------|---------------------|-------|
-| browser_navigate      |  TBD                    | TBD                 | TBD   |
-| browser_snapshot      |  TBD                    | TBD                 | TBD   |
-| browser_evaluate      |  TBD                    | TBD                 | TBD   |
-| browser_current_url   |  TBD                    | TBD                 | TBD   |
+The "rejected" path exercises the full child-side flow:
+JSON-RPC frame parse → handler dispatch → `BrowserCmd` deserialise
+→ guard rejection → error envelope serialise → reply write. The
+~160 µs floor is what every browser tool adds on top of the
+underlying CDP roundtrip when going through the subprocess.
+
+### Live CDP path
+
+`bench_browser_navigate_with_chromium` measures
+`browser_current_url` round-trips against a live headless
+Chromium. Numbers depend heavily on operator hardware + Chromium
+version — paste here when run.
+
+```
+TODO: populate per-host. Run:
+  CHROMIUM_BIN=$(command -v chromium) cargo bench --bench tool_latency
 ```
 
 ## Build prerequisites

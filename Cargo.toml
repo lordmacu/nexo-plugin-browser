@@ -29,6 +29,14 @@ rust-version = "1.75"
 name = "nexo-plugin-browser"
 path = "src/main.rs"
 
+# Plain cargo bench harness — no criterion dep weight. The bench
+# measures stdio round-trip latency of `tool.invoke` against a
+# spawned binary. Run with `cargo bench --bench tool_latency`.
+[[bench]]
+name = "tool_latency"
+path = "benches/tool_latency.rs"
+harness = false
+
 [dependencies]
 tokio             = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
 serde             = { version = "1", features = ["derive"] }
@@ -88,3 +96,12 @@ serial_test = "3"
 opt-level = 3
 lto = "thin"
 strip = "symbols"
+
+# Iterative release builds — full opt, no LTO, parallel codegen.
+# Costs ~5 % runtime; saves ~50 % build time. Reserve `--release`
+# for publish.
+[profile.release-fast]
+inherits      = "release"
+lto           = false
+codegen-units = 16
+strip         = "none"
