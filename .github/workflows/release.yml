@@ -47,18 +47,37 @@ jobs:
       - name: cargo build --release
         working-directory: nexo-plugin-browser
         run: cargo build --release --target ${{ matrix.target }}
-      - name: package
+      - name: package (nexo plugin install layout)
         working-directory: nexo-plugin-browser
         run: |
-          mkdir -p dist
-          tar czf dist/nexo-plugin-browser-${{ matrix.target }}.tar.gz \
-            -C target/${{ matrix.target }}/release \
-            nexo-plugin-browser
-          tar czf dist/manifest-${{ matrix.target }}.tar.gz nexo-plugin.toml
+          # `nexo plugin install` (Phase 31.1.c) expects:
+          #   * bare `nexo-plugin.toml` at release root.
+          #   * `<plugin_id>-<version>-<target>.tar.gz` containing
+          #     `nexo-plugin.toml` + `bin/<plugin_id>` at archive
+          #     root (extractor reads `bin/browser`, not the
+          #     binary's crate name).
+          #   * `<...>.tar.gz.sha256` sidecar with the hex digest.
+          set -euo pipefail
+          mkdir -p dist/staging/bin
+          cp target/${{ matrix.target }}/release/nexo-plugin-browser \
+             dist/staging/bin/browser
+          cp nexo-plugin.toml dist/staging/nexo-plugin.toml
+
+          PLUGIN_ID=$(grep -E '^id = ' nexo-plugin.toml | head -1 | sed -E 's/id = "([^"]+)"/\1/')
+          VERSION=$(grep -E '^version = ' nexo-plugin.toml | head -1 | sed -E 's/version = "([^"]+)"/\1/')
+          TARBALL="${PLUGIN_ID}-${VERSION}-${{ matrix.target }}.tar.gz"
+
+          tar czf "dist/${TARBALL}" -C dist/staging bin/browser nexo-plugin.toml
+          sha256sum "dist/${TARBALL}" | awk '{print $1}' > "dist/${TARBALL}.sha256"
+          cp nexo-plugin.toml dist/nexo-plugin.toml
+          ls -la dist/
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.target }}
-          path: nexo-plugin-browser/dist/
+          path: |
+            nexo-plugin-browser/dist/*.tar.gz
+            nexo-plugin-browser/dist/*.tar.gz.sha256
+            nexo-plugin-browser/dist/nexo-plugin.toml
 
   release:
     name: github release
@@ -72,5 +91,8 @@ jobs:
           path: dist/
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*.tar.gz
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.tar.gz.sha256
+            dist/**/nexo-plugin.toml
           generate_release_notes: true

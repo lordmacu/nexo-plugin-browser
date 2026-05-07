@@ -23,7 +23,7 @@ nexo_capabilities = ["broker"]
 # Daemon resolves this relative to the manifest's containing dir
 # (the existing 81.17 behaviour). Operators who installed this
 # plugin elsewhere drop the binary next to this manifest.
-command = "./nexo-plugin-browser"
+command = "./bin/browser"
 
 [plugin.extends]
 # 12 `browser_*` tool names — must match `src/tool_defs.rs`'s
