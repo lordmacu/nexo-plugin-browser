@@ -1,0 +1,81 @@
+# Phase 81.17.c — out-of-tree standalone repo.
+#
+# Built as a binary subprocess plugin loaded by the nexo-rs daemon
+# via discovery + auto-subprocess fallback (Phase 81.17 + 81.17.b).
+# The daemon spawns this binary, JSON-RPC handshakes over stdio,
+# and routes `tool.invoke` requests for the 12 `browser_*` tools
+# through the SDK's `on_tool` dispatcher.
+#
+# Path deps to `../proyecto/crates/...` are interim — they ship
+# this repo today before nexo-microapp-sdk + nexo-config + the
+# rest publish to crates.io. Operators outside the monorepo build
+# the binary against published crates.io versions; the
+# `Cargo.lock` (committed; binary repo convention) pins the
+# resolved versions for reproducibility.
+[package]
+name        = "nexo-plugin-browser"
+version     = "0.2.0"
+description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
+edition     = "2021"
+license     = "MIT OR Apache-2.0"
+repository  = "https://github.com/nexo-rs/plugin-browser"
+authors     = ["Cristian García <informacion@cristiangarcia.co>"]
+readme      = "README.md"
+keywords    = ["nexo", "plugin", "browser", "cdp", "agent"]
+categories  = ["api-bindings", "command-line-utilities"]
+rust-version = "1.75"
+
+[[bin]]
+name = "nexo-plugin-browser"
+path = "src/main.rs"
+
+[dependencies]
+tokio             = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
+serde             = { version = "1", features = ["derive"] }
+serde_json        = "1"
+anyhow            = "1"
+thiserror         = "1"
+tracing           = "0.1"
+async-trait       = "0.1"
+dashmap           = "6"
+tokio-tungstenite = "0.24"
+tokio-util        = "0.7"
+base64            = "0.22"
+reqwest           = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+futures           = "0.3"
+uuid              = { version = "1", features = ["serde", "v4"] }
+
+# nexo-microapp-sdk: child-side plugin runtime (PluginAdapter +
+# ToolDef + on_tool dispatcher). `plugin` feature exposes the
+# subprocess machinery.
+nexo-microapp-sdk = { path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
+
+# nexo-broker: trait + LocalBroker for the broker bridge events.
+nexo-broker = { path = "../proyecto/crates/broker" }
+
+# nexo-config: BrowserConfig + supporting types so we can reuse
+# the existing in-tree config shape verbatim.
+nexo-config = { path = "../proyecto/crates/config" }
+
+# nexo-core: ToolDef + Plugin trait + dependencies the in-tree
+# crate consumed. The standalone binary uses BrowserPlugin which
+# implements Plugin trait.
+nexo-core = { path = "../proyecto/crates/core" }
+
+# nexo-llm: ToolDef shape used by the per-tool struct's tool_def()
+# method. Build the ToolDef -> SDK ToolDef converter in tool_defs.rs.
+nexo-llm = { path = "../proyecto/crates/llm" }
+
+# nexo-resilience: circuit breaker the in-tree code uses inside
+# CDP client.
+nexo-resilience = { path = "../proyecto/crates/resilience" }
+
+[dev-dependencies]
+libc       = "0.2"
+assert_cmd = "2"
+serial_test = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = "symbols"

@@ -1,0 +1,4 @@
+# Standalone Rust binary plugin — Cargo.lock IS committed
+# (binary repo convention) so consumers reproduce the same
+# resolved versions. Only the build artefacts are ignored.
+/target/
