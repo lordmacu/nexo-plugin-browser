@@ -127,6 +127,99 @@ nexo-plugin-browser
 The binary speaks JSON-RPC line frames over stdin / stdout per
 the [nexo plugin contract v1.10.0](https://github.com/lordmacu/nexo-rs/blob/main/nexo-plugin-contract.md).
 
+## Per-agent profile isolation (v0.2.1+)
+
+By default the plugin spawns **one Chrome per agent** so cookies,
+localStorage, and login state stay isolated. The first
+`tool.invoke` from agent `ana` lazy-boots a Chrome with
+`${BASE}/profiles/ana/`; concurrent calls from agent `juan`
+trigger a second Chrome at `${BASE}/profiles/juan/`. The Chrome
+profile chip carries each agent's name + a stable color
+(derived from `sha256(agent_id)[..3]`) so operators eyeballing
+N parallel Chromes can tell them apart.
+
+### Layout
+
+```
+${NEXO_PLUGIN_BROWSER_USER_DATA_DIR}/        # base directory (env knob)
+├── profiles/
+│   ├── ana/                                  # agent 'ana'
+│   │   └── Default/Preferences               # stamped by decorate_profile_dir
+│   ├── juan/                                 # agent 'juan'
+│   │   └── Default/Preferences
+│   └── default/                              # agent_id missing or opted out
+└── ... (legacy single-profile flat layout)
+```
+
+### Knobs
+
+| Env var | Default | Range | Effect |
+|---------|---------|-------|--------|
+| `NEXO_PLUGIN_BROWSER_MULTI_PROFILE` | `true` | `true` / `false` | When `false`, all agents share the legacy single-profile `user_data_dir` (v0.2.0 behaviour). |
+| `NEXO_PLUGIN_BROWSER_MAX_PROFILES` | `10` | `[1, 64]` | Cap on simultaneous active Chrome profiles. (N+1)th distinct agent → `tool.invoke` returns `-33404 Unavailable`. |
+| `NEXO_PLUGIN_BROWSER_PROFILE_IDLE_SECS` | `900` | `[0, 86400]` | Idle threshold for Chrome eviction (auto-close). `0` disables eviction. The on-disk profile dir survives — next call lazy-reboots cleanly. |
+
+Out-of-range values are clamped at boot + `tracing::warn!`
+logged. Mid-run env changes are ignored — restart the daemon to
+apply (POSIX semantics).
+
+### Resource math
+
+Each Chrome process consumes roughly **~150 MB RAM** at idle.
+Active browsing climbs to 300-500 MB depending on tabs / DOM
+size. Plan capacity:
+
+```
+peak RAM ≈ ~150 MB × min(active_agents, NEXO_PLUGIN_BROWSER_MAX_PROFILES)
+```
+
+For a 4 GB host running ~12 browser-using agents with
+infrequent activity, the default cap of 10 + 15-min idle
+eviction self-balances. Operators with 20+ concurrent agents
+should raise the cap **and** shorten the idle threshold.
+
+### Sanitiser
+
+`agent_id` MUST match the regex `^[A-Za-z0-9_-]{1,64}$` after
+ASCII-lowercasing. Whitespace is trimmed. Anything else
+(path-traversal `..` / `/`, control chars, Unicode punctuation,
+non-ASCII letters) returns `-33402 ArgumentInvalid` with a
+clear message. The same regex `nexo-plugin-manifest::id_regex`
+enforces for plugin and agent IDs across the framework — one
+mental model.
+
+### Opt-out
+
+Set `NEXO_PLUGIN_BROWSER_MULTI_PROFILE=false` to revert to the
+single-shared-profile mode of v0.2.0. All agents route to one
+Chrome instance, sharing cookies / localStorage. Useful when:
+
+- Hosting only one agent.
+- Running an integration test where shared session is desired.
+- Resource-constrained environments where N Chromes won't fit.
+
+### Idle eviction
+
+The eviction loop runs every 30 s. For each profile entry whose
+`last_active_at` exceeds `NEXO_PLUGIN_BROWSER_PROFILE_IDLE_SECS`,
+the loop calls `BrowserPlugin::shutdown_chrome()` and removes
+the DashMap entry. Logs:
+
+```
+INFO plugin.browser: evicted idle Chrome for agent profile agent_id=ana idle_secs=900
+```
+
+The on-disk `${BASE}/profiles/ana/` dir is preserved — Chrome's
+own persistence (cookies, localStorage, IndexedDB) carries
+across the eviction. The next `tool.invoke` from `ana`
+lazy-reboots Chrome with the same dir; sessions resume
+identical to before eviction.
+
+`last_active_at` is **only updated on `Ok(_)` results** — failed
+tool calls preserve the idle clock. This prevents a stuck-on
+agent (LLM looping on `browser_navigate` to a 404) from masking
+the idle signal.
+
 ## Sandbox
 
 The shipped `nexo-plugin.toml` enables a bubblewrap sandbox
@@ -279,6 +372,9 @@ v1.10.0 or later loads this plugin.
 | Tool call replies `-33404 Unavailable` with `chromium binary not found` | Chromium not on PATH and `executable` not set. | Install Chromium or set `NEXO_PLUGIN_BROWSER_EXECUTABLE`. |
 | `bwrap: cannot create directory ...` in plugin stderr | Sandbox enabled but `bwrap` lacks privileges. | `sudo apt install bubblewrap` (most distros provide a setuid binary). |
 | Tool calls hang for 30 s then time out | CDP session lost; Chrome may have crashed. | Restart daemon (auto-respawn arrives in Phase 81.21.b.b). |
+| All agents see each other's cookies / login state | Multi-profile disabled OR agents share a `user_data_dir` env. | Confirm `NEXO_PLUGIN_BROWSER_MULTI_PROFILE` is unset / `true`; verify each agent's `tool.invoke` carries a distinct `agent_id`. |
+| `tool.invoke` returns `-33404` "max profiles reached" | Too many distinct agents have active Chromes. | Raise `NEXO_PLUGIN_BROWSER_MAX_PROFILES` (default 10, max 64) OR shorten `NEXO_PLUGIN_BROWSER_PROFILE_IDLE_SECS` so inactive profiles evict sooner. |
+| `tool.invoke` returns `-33402` "agent_id contains invalid characters" | Daemon emitted an `agent_id` outside `[A-Za-z0-9_-]{1,64}` (e.g. `agent.es`). | Rename the agent in `agents.yaml`. |
 | Peer phone shows "escribiendo…" instead of audio | Unrelated — that's Phase 88's WhatsApp recording-presence; check `cfg.voice_mode`. | — |
 
 ## Phase 81.17.c summary
@@ -305,7 +401,7 @@ extraction of `plugin-telegram` (81.18) and `plugin-whatsapp`
 | 81.17.c.hot-reload-test | ✅ `tests/e2e_persistence.rs` |
 | 81.17.c.latency-numbers | ✅ measured baseline in this README |
 | `nexo-cdp-extract` | ✅ `nexo-cdp v0.1.0` |
-| 81.17.c.multi-profile | ⬜ deferred (demand-driven) |
+| 81.17.c.multi-profile | ✅ shipped in v0.2.1 (this section) |
 
 ## License
 
