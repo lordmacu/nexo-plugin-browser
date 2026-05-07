@@ -1,9 +1,10 @@
 # nexo-plugin-browser
 
-Out-of-tree subprocess plugin for the [nexo-rs](https://github.com/nexo-rs)
-daemon.  Ships the 12 `browser_*` tools (Chrome DevTools Protocol via raw CDP)
-as a standalone binary loaded by the daemon at boot via discovery +
-auto-subprocess fallback.
+Out-of-tree subprocess plugin for the
+[nexo-rs](https://github.com/lordmacu/nexo-rs) daemon. Ships the 12
+`browser_*` tools (Chrome DevTools Protocol via raw CDP) as a standalone
+binary loaded by the daemon at boot via discovery + auto-subprocess
+fallback.
 
 > **Phase 81.17.c.** Pilot extraction of an in-tree plugin to a separate repo,
 > validating the subprocess + manifest + sandbox + remote-tool-handler
@@ -188,9 +189,7 @@ TODO: populate per-host. Run:
 
 `.github/workflows/release.yml` builds `linux-x64` + `macos-arm64` binaries
 on tag push and creates a GitHub Release with the assets. Tag format:
-`v0.2.x`. Workflow is dormant until the repo is published to public
-`github.com/nexo-rs/plugin-browser` (follow-up
-`81.17.c.publish-github`).
+`v0.2.x`.
 
 ## Versioning
 

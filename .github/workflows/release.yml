@@ -1,9 +1,10 @@
-# Disabled until repo is published to public github.com/nexo-rs/plugin-browser.
-# Tracked as follow-up `81.17.c.publish-github`.
+# Activated 2026-05-07 — repo published to
+# `github.com/lordmacu/nexo-plugin-browser` (Phase 81.17.c
+# follow-up `81.17.c.publish-github`).
 #
-# When activated: tag push (`v0.2.0`, `v0.2.1`, …) builds release
-# binaries for linux-x64 + macos-arm64 and creates a GitHub
-# Release with the assets attached. Operators install via
+# Tag push (`v0.2.0`, `v0.2.1`, …) builds release binaries for
+# linux-x64 + macos-arm64 and creates a GitHub Release with the
+# assets attached. Operators install via
 # `curl -L <release-url>/nexo-plugin-browser-<target>.tar.gz`.
 
 name: release
