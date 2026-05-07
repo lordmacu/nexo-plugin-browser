@@ -19,6 +19,7 @@ pub mod env_config;
 pub mod plugin;
 pub mod profile;
 pub mod profile_decoration;
+pub mod profile_limits;
 pub mod tool_defs;
 
 pub use chrome::{ChromeLauncher, RunningChrome};
