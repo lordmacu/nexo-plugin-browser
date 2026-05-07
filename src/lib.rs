@@ -17,10 +17,14 @@ pub mod command;
 pub mod dispatch;
 pub mod env_config;
 pub mod plugin;
+pub mod profile;
 pub mod tool_defs;
 
 pub use chrome::{ChromeLauncher, RunningChrome};
 pub use command::{BrowserCmd, BrowserResult};
 pub use nexo_cdp::{CdpClient, CdpSession};
 pub use plugin::BrowserPlugin;
+pub use profile::{
+    profile_color_argb, sanitize_agent_id, user_data_dir_for, ProfileIdError,
+};
 pub use tool_defs::browser_tool_defs;
