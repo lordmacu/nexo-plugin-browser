@@ -61,6 +61,11 @@ nexo-microapp-sdk = { path = "../proyecto/crates/microapp-sdk", features = ["plu
 # nexo-broker: trait + LocalBroker for the broker bridge events.
 nexo-broker = { path = "../proyecto/crates/broker" }
 
+# nexo-cdp: extracted CDP client crate (follow-up
+# nexo-cdp-extract). Reusable by future browser-flavoured
+# plugins; replaces the in-tree src/cdp/ submodule.
+nexo-cdp = { path = "../proyecto/crates/cdp" }
+
 # nexo-config: BrowserConfig + supporting types so we can reuse
 # the existing in-tree config shape verbatim.
 nexo-config = { path = "../proyecto/crates/config" }
