@@ -1,0 +1,73 @@
+# Phase 81.17.c — out-of-tree subprocess plugin manifest.
+#
+# This file lives next to `nexo-plugin-browser` (the binary) so
+# the daemon's discovery walker (`plugins.discovery.search_paths`
+# entries point at this directory) finds both at once.
+#
+# Contract version: v1.10.0 (see proyecto/nexo-plugin-contract.md).
+# Wire-shape compat: `extends.tools` allowlist + `tools[]`
+# advertisement in the `initialize` reply (consumed by the host's
+# `Inner.declared_tools` decoder — Phase 81.29).
+
+[plugin]
+id = "browser"
+version = "0.2.0"
+name = "Browser Automation"
+description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
+min_nexo_version = ">=0.1.0"
+
+[plugin.requires]
+nexo_capabilities = ["broker"]
+
+[plugin.entrypoint]
+# Daemon resolves this relative to the manifest's containing dir
+# (the existing 81.17 behaviour). Operators who installed this
+# plugin elsewhere drop the binary next to this manifest.
+command = "./nexo-plugin-browser"
+
+[plugin.extends]
+# 12 `browser_*` tool names — must match `src/tool_defs.rs`'s
+# advertised list. Daemon kills the subprocess at handshake if
+# any name in the initialize-reply tools[] is NOT in this list
+# (out-of-tree-binary defense).
+tools = [
+    "browser_click",
+    "browser_current_url",
+    "browser_evaluate",
+    "browser_fill",
+    "browser_go_back",
+    "browser_go_forward",
+    "browser_navigate",
+    "browser_press_key",
+    "browser_screenshot",
+    "browser_scroll_to",
+    "browser_snapshot",
+    "browser_wait_for",
+]
+
+[plugin.sandbox]
+# Phase 81.22 — bubblewrap-based v1. `enabled = true` requires
+# `bwrap` on PATH or NEXO_PLUGIN_SANDBOX_REQUIRE=0 to degrade.
+# Chromium needs user namespaces for its OWN sandbox, so
+# `drop_user = false` (don't unshare the user ns).
+enabled = true
+network = "host"
+fs_read_paths = [
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+]
+fs_write_paths = [
+    "${state_dir}",
+]
+drop_user = false
+
+[plugin.supervisor]
+# Crash detection + stderr tail capture (Phase 81.21 + 81.21.b).
+# Auto-respawn (`respawn = true`) waits for 81.21.b.b — for now
+# the operator restarts the daemon on browser crash.
+respawn = false
+max_attempts = 0
+backoff_ms = 1000
+stderr_tail_lines = 64

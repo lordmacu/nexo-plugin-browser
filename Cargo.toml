@@ -70,6 +70,15 @@ nexo-llm = { path = "../proyecto/crates/llm" }
 # CDP client.
 nexo-resilience = { path = "../proyecto/crates/resilience" }
 
+# nexo-plugin-manifest: the copied plugin.rs uses this to parse
+# its bundled manifest in `BrowserPlugin::new` (in-tree behaviour
+# preserved).
+nexo-plugin-manifest = { path = "../proyecto/crates/plugin-manifest" }
+
+# toml: the copied plugin.rs uses `toml::from_str` to parse the
+# bundled manifest.
+toml = "0.8"
+
 [dev-dependencies]
 libc       = "0.2"
 assert_cmd = "2"
