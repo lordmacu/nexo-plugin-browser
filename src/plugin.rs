@@ -129,6 +129,28 @@ impl BrowserPlugin {
     }
 }
 
+impl BrowserPlugin {
+    /// Phase 81.17.c.multi-profile — close the active Chrome
+    /// session + kill the spawned Chrome process. Idempotent: a
+    /// second call after the inner state is already empty is a
+    /// no-op.
+    ///
+    /// Drop order matters: clear `session` first so any pending
+    /// CDP commands fail with the existing "no active session"
+    /// branch, then clear `chrome` (whose `RunningChrome::Drop`
+    /// kills the OS process). Both fields stay re-bootable —
+    /// the next [`Self::execute`] call will lazy-reboot a fresh
+    /// Chrome with the same `user_data_dir` so cookies / login
+    /// state persist across eviction cycles.
+    pub async fn shutdown_chrome(&self) {
+        let mut session = self.inner.session.lock().await;
+        *session = None;
+        drop(session);
+        let mut chrome = self.inner.chrome.lock().await;
+        *chrome = None;
+    }
+}
+
 impl BrowserInner {
     async fn ensure_session(self: &Arc<Self>) -> anyhow::Result<()> {
         let mut session_lock = self.session.lock().await;
@@ -192,3 +214,33 @@ async fn get_first_target_id(ws_url: &str, timeout_ms: u64) -> anyhow::Result<St
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("no page target found in Chrome"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> BrowserConfig {
+        BrowserConfig {
+            headless: true,
+            executable: String::new(),
+            cdp_url: String::new(),
+            user_data_dir: "./.test-profile".into(),
+            window_width: 1280,
+            window_height: 800,
+            connect_timeout_ms: 8_000,
+            command_timeout_ms: 30_000,
+            args: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_chrome_is_idempotent_on_fresh_plugin() {
+        // BrowserPlugin::new doesn't boot Chrome (lazy); session
+        // and chrome are both `None`. shutdown_chrome must be a
+        // no-op (no panic on locking-empty-Mutex, no error).
+        let plugin = BrowserPlugin::new(test_config());
+        plugin.shutdown_chrome().await;
+        plugin.shutdown_chrome().await; // second call must also no-op.
+    }
+}
+
