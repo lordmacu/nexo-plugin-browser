@@ -29,13 +29,26 @@ jobs:
             target: aarch64-apple-darwin
             archive: tar.gz
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          path: nexo-plugin-browser
+      # Path deps in Cargo.toml resolve `../proyecto/crates/...`
+      # — fetch the daemon workspace alongside the plugin so
+      # cargo can build until 81.17.c.crates-publish ships.
+      - name: Checkout proyecto (path-dep workspace)
+        uses: actions/checkout@v4
+        with:
+          repository: lordmacu/nexo-rs
+          path: proyecto
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - name: cargo build --release
+        working-directory: nexo-plugin-browser
         run: cargo build --release --target ${{ matrix.target }}
       - name: package
+        working-directory: nexo-plugin-browser
         run: |
           mkdir -p dist
           tar czf dist/nexo-plugin-browser-${{ matrix.target }}.tar.gz \
@@ -45,7 +58,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.target }}
-          path: dist/
+          path: nexo-plugin-browser/dist/
 
   release:
     name: github release
