@@ -53,40 +53,25 @@ reqwest           = { version = "0.12", default-features = false, features = ["r
 futures           = "0.3"
 uuid              = { version = "1", features = ["serde", "v4"] }
 
-# nexo-microapp-sdk: child-side plugin runtime (PluginAdapter +
-# ToolDef + on_tool dispatcher). `plugin` feature exposes the
-# subprocess machinery.
-nexo-microapp-sdk = { path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
-
-# nexo-broker: trait + LocalBroker for the broker bridge events.
-nexo-broker = { path = "../proyecto/crates/broker" }
-
-# nexo-cdp: extracted CDP client crate (follow-up
-# nexo-cdp-extract). Reusable by future browser-flavoured
-# plugins; replaces the in-tree src/cdp/ submodule.
-nexo-cdp = { path = "../proyecto/crates/cdp" }
-
-# nexo-config: BrowserConfig + supporting types so we can reuse
-# the existing in-tree config shape verbatim.
-nexo-config = { path = "../proyecto/crates/config" }
-
-# nexo-core: ToolDef + Plugin trait + dependencies the in-tree
-# crate consumed. The standalone binary uses BrowserPlugin which
-# implements Plugin trait.
-nexo-core = { path = "../proyecto/crates/core" }
-
-# nexo-llm: ToolDef shape used by the per-tool struct's tool_def()
-# method. Build the ToolDef -> SDK ToolDef converter in tool_defs.rs.
-nexo-llm = { path = "../proyecto/crates/llm" }
-
-# nexo-resilience: circuit breaker the in-tree code uses inside
-# CDP client.
-nexo-resilience = { path = "../proyecto/crates/resilience" }
-
-# nexo-plugin-manifest: the copied plugin.rs uses this to parse
-# its bundled manifest in `BrowserPlugin::new` (in-tree behaviour
-# preserved).
-nexo-plugin-manifest = { path = "../proyecto/crates/plugin-manifest" }
+# nexo-* deps as dual `version + path` so the repo:
+#   - builds in CI alongside a `proyecto/` sibling checkout
+#     (path resolves first when present);
+#   - resolves from crates.io once published versions advance to
+#     match the in-tree shape (currently nexo-core 0.1.1 on
+#     crates.io is incompatible with nexo-mcp 0.1.2 — full
+#     cascade publish is Phase 83.14.b territory).
+#
+# Already-published in 81.17.c.crates-publish:
+#   - nexo-cdp v0.1.0
+#   - nexo-microapp-sdk v0.1.1
+nexo-microapp-sdk    = { version = "0.1.1", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
+nexo-broker          = { version = "0.1.2", path = "../proyecto/crates/broker" }
+nexo-cdp             = { version = "0.1.0", path = "../proyecto/crates/cdp" }
+nexo-config          = { version = "0.1.4", path = "../proyecto/crates/config" }
+nexo-core            = { version = "0.1.1", path = "../proyecto/crates/core" }
+nexo-llm             = { version = "0.1.2", path = "../proyecto/crates/llm" }
+nexo-resilience      = { version = "0.1.1", path = "../proyecto/crates/resilience" }
+nexo-plugin-manifest = { version = "0.1.0", path = "../proyecto/crates/plugin-manifest" }
 
 # toml: the copied plugin.rs uses `toml::from_str` to parse the
 # bundled manifest.
