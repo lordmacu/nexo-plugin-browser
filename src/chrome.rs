@@ -7,6 +7,13 @@ use tokio::process::Command;
 
 use nexo_config::BrowserConfig;
 
+// Phase 27.x.browser-windows-discovery — discovery logic lives
+// in its own module so the per-platform candidate lists can grow
+// + be tested independently. S3 introduces the module with the
+// legacy Linux-only impl moved verbatim; S4–S8 evolve it.
+mod discovery;
+use discovery::find_chrome_executable;
+
 /// Categorisation of a discovered browser. Drives kind-specific
 /// quirks at launch time (e.g. Edge in some builds requires
 /// `--remote-allow-origins=*` for CDP). The taxonomy is pruned
@@ -207,43 +214,6 @@ async fn wait_for_devtools_url(
             return Ok(rest.trim().to_string());
         }
     }
-}
-
-fn find_chrome_executable() -> Option<String> {
-    let candidates = [
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium-browser",
-        "chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/snap/bin/chromium",
-    ];
-
-    for candidate in &candidates {
-        if which_exists(candidate) {
-            return Some(candidate.to_string());
-        }
-    }
-    None
-}
-
-fn which_exists(name: &str) -> bool {
-    // Fast check: try to find in PATH using `which` or just test if absolute path exists
-    if name.starts_with('/') {
-        return std::path::Path::new(name).exists();
-    }
-    // Search PATH
-    if let Ok(path_var) = std::env::var("PATH") {
-        for dir in path_var.split(':') {
-            let full = format!("{dir}/{name}");
-            if std::path::Path::new(&full).exists() {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
