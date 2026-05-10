@@ -46,10 +46,11 @@ nexo --config ~/.config/nexo/agents.yaml
 
 - **Rust 1.80+** to build from source (`cargo install` handles
   this automatically when toolchain is on PATH).
-- **Chromium / Chrome** on the daemon's host. Install via your
-  package manager (`apt install chromium-browser` on Debian /
-  Ubuntu; `brew install --cask chromium` on macOS) or pin the
-  binary path with `NEXO_PLUGIN_BROWSER_EXECUTABLE`.
+- **Chrome / Chromium / Edge** on the daemon's host. Auto-detect
+  resolves the typical install paths on every supported OS — see
+  [§ Browser auto-detect](#browser-auto-detect). Pin an explicit
+  binary with `NEXO_PLUGIN_BROWSER_EXECUTABLE=/abs/path/to/exe`
+  if your install lives outside those.
 - **bubblewrap** (`bwrap`) on Linux for the sandbox profile —
   optional but recommended (see § Sandbox below).
 - **A live nexo-rs daemon** at v0.1.x or later that supports
@@ -111,6 +112,42 @@ plugins:
 | `connect_timeout_ms` | `8000` | How long to wait for Chrome / CDP handshake on startup. |
 | `command_timeout_ms` | `30000` | Per-CDP-command execution timeout. |
 | `args` | `[]` | Extra CLI flags forwarded verbatim to the spawned Chrome (e.g. `--no-sandbox,--disable-dev-shm-usage` on hardened containers). Ignored when `cdp_url` is set. |
+
+## Browser auto-detect
+
+When `browser.executable` (and the `NEXO_PLUGIN_BROWSER_EXECUTABLE`
+env var) is empty, the plugin scans well-known install paths
+for Chrome / Chromium / Edge in this order:
+
+| OS | Tier 1 — bundled paths (`Path::exists`) | Tier 2 — `PATH` lookup |
+|---|---|---|
+| **Linux** | `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`, `/usr/bin/chromium-browser`, `/usr/bin/chromium`, `/snap/bin/chromium`, `/data/data/com.termux/files/usr/bin/chromium` (Termux) | `google-chrome`, `google-chrome-stable`, `chromium-browser`, `chromium` |
+| **macOS** | `/Applications/Google Chrome.app/...`, `/Applications/Chromium.app/...`, `/Applications/Microsoft Edge.app/...`, plus `$HOME/Applications/...` per-user copies | `google-chrome`, `chromium` (Homebrew Cask shims) |
+| **Windows** | `%LOCALAPPDATA%\{Google\Chrome,Microsoft\Edge,Chromium}\Application\<exe>`, `%ProgramFiles%` + `%ProgramFiles(x86)%` × `{chrome.exe, msedge.exe}` | `chrome`, `msedge` (PATHEXT-aware via the `which` crate) |
+
+First existing path wins. The chosen browser is logged at
+`info` level under `target = "browser.discovery"` with fields
+`kind` (`Chrome` / `Chromium` / `Edge` / `Custom`), `path`, and
+`source` (`auto-detect` or `env-override`).
+
+If neither tier resolves, the launch fails with the full list
+of probed paths so you can paste it into a bug report or pick
+one for `NEXO_PLUGIN_BROWSER_EXECUTABLE`:
+
+```text
+Error: no Chrome/Chromium/Edge executable found — searched 11 location(s):
+  /usr/bin/google-chrome
+  /usr/bin/google-chrome-stable
+  /usr/bin/chromium-browser
+  ...
+  $PATH lookup: chromium
+set NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path to override
+```
+
+`NEXO_PLUGIN_BROWSER_EXECUTABLE` is **fail-fast**: if you set
+it to a path that doesn't exist, the plugin errors out with
+`NEXO_PLUGIN_BROWSER_EXECUTABLE points to non-existent path:
+<path>` rather than silently falling through to auto-detect.
 
 ## Direct env override (advanced)
 

@@ -5,6 +5,95 @@ The project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- **Cross-platform Chrome / Chromium / Edge auto-detect**
+  (Phase 27.x.browser-windows-discovery). Out-of-the-box
+  install paths now resolve on every host:
+  - **Windows**: `%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe`,
+    `%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe`,
+    `%LOCALAPPDATA%\Chromium\Application\chrome.exe`,
+    `%ProgramFiles%\Google\Chrome\Application\chrome.exe`,
+    `%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe`,
+    `%ProgramFiles%\Microsoft\Edge\Application\msedge.exe`,
+    `%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe`,
+    plus `chrome` / `msedge` via `PATH` (PATHEXT-aware).
+  - **macOS**: `/Applications/Google Chrome.app`,
+    `/Applications/Chromium.app`,
+    `/Applications/Microsoft Edge.app`, plus
+    `$HOME/Applications/...` per-user copies, plus Homebrew
+    Cask `google-chrome` / `chromium` PATH shims.
+  - **Linux**: `/usr/bin/google-chrome`,
+    `/usr/bin/google-chrome-stable`,
+    `/usr/bin/chromium-browser`, `/usr/bin/chromium`,
+    `/snap/bin/chromium`,
+    `/data/data/com.termux/files/usr/bin/chromium` (Termux
+    Android), plus the same names via `PATH`.
+- **Edge as a first-class auto-detect target.** Microsoft Edge
+  is Chromium-based; CDP works against `msedge.exe` identically.
+  Windows enterprise installs that ship Edge but not Chrome
+  now resolve a usable browser without the explicit
+  `NEXO_PLUGIN_BROWSER_EXECUTABLE` override.
+- **`browser.discovery` tracing log** at `info` level on every
+  launch. Structured fields `kind` (`Chrome` / `Chromium` /
+  `Edge` / `Custom`), `path`, and `source` (`auto-detect` or
+  `env-override`) — grep-friendly diagnostic for "why did the
+  daemon pick *that* browser" reports.
+- **Searched-paths list in the not-found error.** When
+  auto-detect exhausts every Tier 1 (bundled) and Tier 2
+  (`PATH`) candidate, the failure message now enumerates each
+  concrete probe site so the operator can paste the list
+  straight into a bug report or set
+  `NEXO_PLUGIN_BROWSER_EXECUTABLE` against an absolute path
+  that exists.
+
+### Changed
+
+- **Windows `PATH` lookup honours the platform separator and
+  `PATHEXT`.** The pre-existing hand-rolled `which_exists`
+  split `PATH` by `:` unconditionally, which broke Windows
+  (separator is `;`) and truncated drive letters
+  (`C:\Program Files\...` became `["C", "\Program Files\..."]`).
+  Discovery now routes bare names through the `which` crate.
+- **`NEXO_PLUGIN_BROWSER_EXECUTABLE` fail-fast on missing
+  path.** A typo in the override (or a stale path that's been
+  uninstalled) used to silently fall through to the spawn
+  step where the operator saw a generic
+  `failed to spawn Chrome (...): No such file or directory`.
+  The plugin now stat-s the override up front and surfaces
+  `NEXO_PLUGIN_BROWSER_EXECUTABLE points to non-existent path:
+  <path>` so the operator notices the typo immediately.
+  **Behaviour change** — operators who relied on the silent
+  fallback need to either fix the override or unset it to
+  re-engage auto-detect.
+
+### Tests
+
+- 17 new unit tests: per-OS pure builders
+  (`linux_candidates`, `macos_candidates`,
+  `windows_candidates`) exercise candidate shape, ordering
+  (Chrome ranks before Edge before Chromium, system before
+  user), and env-var fallback. `bundled_candidates` /
+  `path_lookup_names` host-dispatch smoke. Override fail-fast
+  e2e (`launch_fails_fast_when_override_path_missing`).
+- New `.github/workflows/ci.yml` — `cargo nextest run --lib`
+  on `ubuntu-latest`, `macos-14`, `windows-latest` runners
+  every push + PR. Per-platform discovery cfg-branches stay
+  green.
+
+### Internal
+
+- New `which = "7"` dep replaces the hand-rolled `which_exists`
+  PATH walker. Honours `PATHEXT` (Windows `chrome` resolves to
+  `chrome.exe`), platform separator, and registered
+  shortcuts.
+- Discovery extracted into `src/chrome/discovery.rs` with
+  per-OS bundled-candidate builders + a single
+  `find_chrome_executable() -> Result<BrowserExecutable,
+  DiscoveryError>` orchestrator. Pure builders carry no `cfg`
+  guard so a Linux dev box can validate Windows / macOS
+  candidate shapes without spinning up a runner of that OS.
+
 ## [0.2.1] – 2026-05-07
 
 ### Added
