@@ -95,6 +95,7 @@ fn find_in_candidates() -> Option<BrowserExecutable> {
 /// `find_chrome_executable` used (e.g. `google-chrome` without a
 /// path) move into the Tier 2 `find_in_path` PATH lookup added
 /// in S8.
+#[cfg_attr(not(any(all(unix, not(target_os = "macos")), test)), allow(dead_code))]
 fn linux_candidates() -> Vec<(BrowserKind, PathBuf)> {
     let pairs: &[(BrowserKind, &str)] = &[
         // Chrome stable + the legacy non-suffixed binary that
@@ -130,6 +131,7 @@ fn linux_candidates() -> Vec<(BrowserKind, PathBuf)> {
 /// `~/Applications` (rare per-user install) are checked.
 ///
 /// Order: Chrome → Chromium → Edge.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 fn macos_candidates(home: Option<&str>) -> Vec<(BrowserKind, PathBuf)> {
     // System-scope `/Applications/...` paths first so
     // operators with a global Chrome install hit it before any
@@ -179,6 +181,7 @@ fn macos_candidates(home: Option<&str>) -> Vec<(BrowserKind, PathBuf)> {
 /// Chrome lives under both `LOCALAPPDATA` and `Program Files
 /// (x86)` resolves to the user-scope install (more recent in
 /// practice).
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
 fn windows_candidates(
     local_app: Option<&str>,
     program_files: &str,
@@ -221,24 +224,76 @@ fn windows_candidates(
     out
 }
 
-/// Find the first available Chrome/Chromium executable on the
-/// system. Currently Linux-only — Windows + macOS support lands
-/// in S5/S6.
-pub(super) fn find_chrome_executable() -> Option<String> {
-    let candidates = [
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium-browser",
-        "chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/snap/bin/chromium",
-    ];
+/// Find the first available Chrome/Chromium/Edge executable on
+/// the host. Two-tier strategy:
+///
+///   1. Tier 1 — bundled candidates per OS
+///      (`find_in_candidates`).
+///   2. Tier 2 — PATH lookup via `which::which`
+///      (`find_in_path`). Picks up Chrome installed at a
+///      non-standard path that's still reachable via the
+///      operator's `PATH` (corp custom install, Homebrew shim).
+///
+/// Returns `None` only when both tiers exhaust without finding a
+/// usable browser. Callers that need the searched-paths list for
+/// diagnostics use the `find_chrome_executable_with_searched`
+/// variant added in S11.
+pub(super) fn find_chrome_executable() -> Option<BrowserExecutable> {
+    if let Some(found) = find_in_candidates() {
+        return Some(found);
+    }
+    find_in_path()
+}
 
-    for candidate in &candidates {
-        if probe_exists(candidate) {
-            return Some(candidate.to_string());
+/// Tier 2 — PATH lookup. Tries each per-OS bare-name candidate
+/// through `which::which` (which honours `PATHEXT` on Windows).
+/// First resolution wins.
+#[cfg(target_os = "windows")]
+fn find_in_path() -> Option<BrowserExecutable> {
+    let names: &[(BrowserKind, &str)] = &[
+        // `chrome` resolves to `chrome.exe` via PATHEXT — we
+        // never have to append `.exe` manually.
+        (BrowserKind::Chrome, "chrome"),
+        (BrowserKind::Edge, "msedge"),
+    ];
+    resolve_first_in_path(names)
+}
+
+#[cfg(target_os = "macos")]
+fn find_in_path() -> Option<BrowserExecutable> {
+    // macOS PATH almost never contains Chrome (apps live in
+    // `.app` bundles), but Homebrew Cask sometimes drops a
+    // `google-chrome` shim under `/usr/local/bin` or
+    // `/opt/homebrew/bin`. Honour it if present.
+    let names: &[(BrowserKind, &str)] = &[
+        (BrowserKind::Chrome, "google-chrome"),
+        (BrowserKind::Chromium, "chromium"),
+    ];
+    resolve_first_in_path(names)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn find_in_path() -> Option<BrowserExecutable> {
+    // The bare-name candidates the legacy list carried — preserved
+    // here so a custom apt repo that drops `google-chrome` somewhere
+    // other than `/usr/bin` still resolves.
+    let names: &[(BrowserKind, &str)] = &[
+        (BrowserKind::Chrome, "google-chrome"),
+        (BrowserKind::Chrome, "google-chrome-stable"),
+        (BrowserKind::Chromium, "chromium-browser"),
+        (BrowserKind::Chromium, "chromium"),
+    ];
+    resolve_first_in_path(names)
+}
+
+/// Resolve the first name in the list via `which::which`.
+fn resolve_first_in_path(names: &[(BrowserKind, &str)]) -> Option<BrowserExecutable> {
+    for (kind, name) in names {
+        if let Ok(path) = which::which(name) {
+            return Some(BrowserExecutable {
+                kind: kind.clone(),
+                path,
+            });
         }
     }
     None
@@ -257,6 +312,7 @@ pub(super) fn find_chrome_executable() -> Option<String> {
 /// Replaces the hand-rolled `which_exists` removed in this
 /// commit, which split PATH by `:` unconditionally — broke
 /// Windows (drive letters got truncated) and missed `PATHEXT`.
+#[allow(dead_code)] // wired to override-path validation in S10
 fn probe_exists(name: &str) -> bool {
     let path = Path::new(name);
     if path.is_absolute() {

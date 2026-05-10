@@ -106,13 +106,24 @@ pub struct ChromeLauncher;
 
 impl ChromeLauncher {
     pub async fn launch(config: &BrowserConfig) -> anyhow::Result<RunningChrome> {
-        let exe = if config.executable.is_empty() {
+        // Phase 27.x.browser-windows-discovery — auto-detect now
+        // returns a typed `BrowserExecutable` carrying the kind.
+        // The override branch wraps the operator-supplied path in
+        // a `Custom` kind. S9 adds the kind-tagged tracing log.
+        let resolved: BrowserExecutable = if config.executable.is_empty() {
             find_chrome_executable().ok_or_else(|| {
-                anyhow!("no Chrome/Chromium executable found — install google-chrome or chromium")
+                anyhow!(
+                    "no Chrome/Chromium/Edge executable found — install Chrome / Chromium / Edge \
+                     or set NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path"
+                )
             })?
         } else {
-            config.executable.clone()
+            BrowserExecutable {
+                kind: BrowserKind::Custom,
+                path: PathBuf::from(&config.executable),
+            }
         };
+        let exe = &resolved.path;
 
         let mut args = vec![
             format!("--remote-debugging-port=0"),
@@ -155,7 +166,7 @@ impl ChromeLauncher {
             .stdout(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| anyhow!("failed to spawn Chrome ({exe}): {e}"))?;
+            .map_err(|e| anyhow!("failed to spawn Chrome ({}): {e}", exe.display()))?;
 
         let pid = child.id().unwrap_or(0);
 
