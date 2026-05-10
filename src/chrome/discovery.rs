@@ -71,14 +71,53 @@ fn find_in_candidates() -> Option<BrowserExecutable> {
         .map(|(kind, path)| BrowserExecutable { kind, path })
 }
 
-/// Linux bundled candidates land in S7 — until then this
-/// function returns `None` and the legacy
-/// `find_chrome_executable` (still used by `chrome.rs::launch`)
-/// keeps Linux running through its own list.
+/// Linux bundled candidates — `apt`/`snap` install paths plus
+/// the Termux Android prefix. Same shape as `windows_candidates`
+/// / `macos_candidates`: pure builder for testability, runtime
+/// wrapper handles the disk probe.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[allow(dead_code)] // wired up in S8
 fn find_in_candidates() -> Option<BrowserExecutable> {
-    None
+    let candidates = linux_candidates();
+    candidates
+        .into_iter()
+        .find(|(_, p)| p.exists())
+        .map(|(kind, path)| BrowserExecutable { kind, path })
+}
+
+/// Pure builder for the Linux candidate list (covers Termux on
+/// Android too — its prefix is a deterministic path the package
+/// manager always installs to).
+///
+/// Unlike Windows/macOS this list is just absolute paths — no
+/// per-user vs system-scope split because Linux package managers
+/// install system-wide. The bare-name candidates that the legacy
+/// `find_chrome_executable` used (e.g. `google-chrome` without a
+/// path) move into the Tier 2 `find_in_path` PATH lookup added
+/// in S8.
+fn linux_candidates() -> Vec<(BrowserKind, PathBuf)> {
+    let pairs: &[(BrowserKind, &str)] = &[
+        // Chrome stable + the legacy non-suffixed binary that
+        // some distros symlink. Order: stable → unsuffixed
+        // (matches the legacy list's preference for the
+        // canonical `google-chrome` name).
+        (BrowserKind::Chrome, "/usr/bin/google-chrome"),
+        (BrowserKind::Chrome, "/usr/bin/google-chrome-stable"),
+        // Chromium variants — `chromium-browser` is what Debian /
+        // Ubuntu ship; `chromium` is the upstream Chromium
+        // project name + Snap target name.
+        (BrowserKind::Chromium, "/usr/bin/chromium-browser"),
+        (BrowserKind::Chromium, "/usr/bin/chromium"),
+        (BrowserKind::Chromium, "/snap/bin/chromium"),
+        // Termux Android — `pkg install chromium` installs to a
+        // deterministic prefix under the Termux app sandbox.
+        // Including the path here means a bare Termux operator
+        // running this plugin without `NEXO_PLUGIN_BROWSER_EXECUTABLE`
+        // gets auto-detect for free, matching the Linux UX.
+        (BrowserKind::Chromium, "/data/data/com.termux/files/usr/bin/chromium"),
+    ];
+
+    pairs.iter().map(|(k, p)| (k.clone(), PathBuf::from(*p))).collect()
 }
 
 /// Pure builder for the macOS candidate list. Always compiled
@@ -328,6 +367,37 @@ mod tests {
             paths.iter().any(|p| p.contains("PFx86") && p.ends_with(r"Microsoft\Edge\Application\msedge.exe")),
             "Program Files (x86) Edge missing: {paths:?}"
         );
+    }
+
+    #[test]
+    fn linux_candidates_include_chrome_chromium_termux() {
+        let cands = linux_candidates();
+        let paths: Vec<_> = cands.iter().map(|(_, p)| p.to_string_lossy().into_owned()).collect();
+        // Pre-existing path coverage preserved (regression guard).
+        assert!(paths.iter().any(|p| p == "/usr/bin/google-chrome"));
+        assert!(paths.iter().any(|p| p == "/usr/bin/google-chrome-stable"));
+        assert!(paths.iter().any(|p| p == "/usr/bin/chromium-browser"));
+        assert!(paths.iter().any(|p| p == "/usr/bin/chromium"));
+        assert!(paths.iter().any(|p| p == "/snap/bin/chromium"));
+        // New: Termux Android prefix.
+        assert!(
+            paths.iter().any(|p| p == "/data/data/com.termux/files/usr/bin/chromium"),
+            "Termux Android path missing: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn linux_candidates_chrome_ranks_before_chromium() {
+        let cands = linux_candidates();
+        let chrome_idx = cands
+            .iter()
+            .position(|(k, _)| matches!(k, BrowserKind::Chrome))
+            .expect("at least one Chrome entry");
+        let chromium_idx = cands
+            .iter()
+            .position(|(k, _)| matches!(k, BrowserKind::Chromium))
+            .expect("at least one Chromium entry");
+        assert!(chrome_idx < chromium_idx, "Chrome should rank before Chromium");
     }
 
     #[test]
