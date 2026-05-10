@@ -22,6 +22,8 @@
 //! - **S4–S8:** swap `which_exists` for `which::which`, add Windows
 //!   + macOS candidate lists + Tier 2 fallback per OS.
 
+use std::path::Path;
+
 /// Find the first available Chrome/Chromium executable on the
 /// system. Currently Linux-only — Windows + macOS support lands
 /// in S5/S6.
@@ -38,32 +40,71 @@ pub(super) fn find_chrome_executable() -> Option<String> {
     ];
 
     for candidate in &candidates {
-        if which_exists(candidate) {
+        if probe_exists(candidate) {
             return Some(candidate.to_string());
         }
     }
     None
 }
 
-/// **Legacy.** Hand-rolled PATH lookup that splits by `:` —
-/// breaks Windows (separator is `;`, drive letters get
-/// truncated) and doesn't honour `PATHEXT`. Replaced by
-/// `which::which` in S4. Kept temporarily so S3 is a pure
-/// move (zero behavior change vs the removed `chrome.rs`
-/// definition).
-fn which_exists(name: &str) -> bool {
-    // Fast check: try to find in PATH using `which` or just test if absolute path exists
-    if name.starts_with('/') {
-        return std::path::Path::new(name).exists();
+/// Cross-platform existence probe.
+///
+/// - Absolute paths short-circuit to a stat call so Linux's
+///   `/usr/bin/...` and Windows' `C:\Program Files\...`
+///   candidates resolve identically.
+/// - Bare names go through `which::which` which honours the
+///   platform PATH separator (`;` on Windows, `:` on POSIX) +
+///   `PATHEXT` so `chrome` correctly resolves to `chrome.exe`
+///   on Windows without a manual extension append.
+///
+/// Replaces the hand-rolled `which_exists` removed in this
+/// commit, which split PATH by `:` unconditionally — broke
+/// Windows (drive letters got truncated) and missed `PATHEXT`.
+fn probe_exists(name: &str) -> bool {
+    let path = Path::new(name);
+    if path.is_absolute() {
+        return path.exists();
     }
-    // Search PATH
-    if let Ok(path_var) = std::env::var("PATH") {
-        for dir in path_var.split(':') {
-            let full = format!("{dir}/{name}");
-            if std::path::Path::new(&full).exists() {
-                return true;
-            }
-        }
+    which::which(name).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_exists_absolute_existing_returns_true() {
+        // `cargo` is shipped with the toolchain so the host that
+        // runs `cargo nextest` is guaranteed to have it. Resolve
+        // its absolute path via the canonical lookup, then confirm
+        // the absolute-path branch agrees.
+        let cargo = which::which("cargo").expect("cargo on PATH");
+        assert!(probe_exists(cargo.to_str().unwrap()));
     }
-    false
+
+    #[test]
+    fn probe_exists_absolute_missing_returns_false() {
+        // Use a path that's deterministically absent across CI
+        // images. `/nonexistent/...` is not reserved on any OS,
+        // but the leading slash forces the absolute branch on
+        // Unix and lets Windows test runners fall through to the
+        // `Path::exists` `false` immediately too.
+        assert!(!probe_exists("/nonexistent/nexo-plugin-browser-discovery-probe"));
+    }
+
+    #[test]
+    fn probe_exists_bare_name_in_path() {
+        // `cargo` is on PATH whenever `cargo nextest` runs the
+        // test, so this exercise the `which::which` branch on
+        // every platform.
+        assert!(probe_exists("cargo"));
+    }
+
+    #[test]
+    fn probe_exists_bare_name_not_in_path() {
+        // Garbage name unlikely to clash with any binary; if a
+        // future contributor names a tool this we'll know via the
+        // panic. Tests `which::which` returning `Err`.
+        assert!(!probe_exists("nexo-plugin-browser-this-name-must-not-exist-zzz"));
+    }
 }
