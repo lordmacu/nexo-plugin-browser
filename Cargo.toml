@@ -54,6 +54,13 @@ base64            = "0.22"
 reqwest           = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 futures           = "0.3"
 uuid              = { version = "1", features = ["serde", "v4"] }
+# Phase 27.x.browser-windows-discovery — cross-platform PATH
+# lookup. Replaces a hand-rolled `which_exists` that split PATH
+# by `:` (Unix-only — broke Windows where the separator is `;`
+# and drive letters like `C:\Program Files\...` got truncated).
+# `which = "7"` honours `PATHEXT` on Windows, the platform
+# separator, and registered shortcuts.
+which             = "7"
 
 # Slim dep set — only what the subprocess actually needs.
 # All four resolve from crates.io alone; no proyecto sibling
