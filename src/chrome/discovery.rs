@@ -55,11 +55,20 @@ fn find_in_candidates() -> Option<BrowserExecutable> {
         .map(|(kind, path)| BrowserExecutable { kind, path })
 }
 
-/// macOS bundled candidates land in S6.
+/// macOS bundled candidates — `.app` bundles in `/Applications`
+/// (admin install) and `~/Applications` (per-user install,
+/// rare but legitimate). The pure builder
+/// `macos_candidates(home)` is cfg-free for testability.
 #[cfg(target_os = "macos")]
 #[allow(dead_code)] // wired up in S8
 fn find_in_candidates() -> Option<BrowserExecutable> {
-    None
+    let home = std::env::var("HOME").ok();
+    let candidates = macos_candidates(home.as_deref());
+
+    candidates
+        .into_iter()
+        .find(|(_, p)| p.exists())
+        .map(|(kind, path)| BrowserExecutable { kind, path })
 }
 
 /// Linux bundled candidates land in S7 — until then this
@@ -70,6 +79,53 @@ fn find_in_candidates() -> Option<BrowserExecutable> {
 #[allow(dead_code)] // wired up in S8
 fn find_in_candidates() -> Option<BrowserExecutable> {
     None
+}
+
+/// Pure builder for the macOS candidate list. Always compiled
+/// — see `windows_candidates` rationale.
+///
+/// Each browser ships as a `.app` bundle; the actual ELF / Mach-O
+/// binary lives at `<bundle>.app/Contents/MacOS/<exe-name>` per
+/// the Apple bundle conventions. Both `/Applications` (admin
+/// install, default for Chrome / Edge installers) and
+/// `~/Applications` (rare per-user install) are checked.
+///
+/// Order: Chrome → Chromium → Edge.
+fn macos_candidates(home: Option<&str>) -> Vec<(BrowserKind, PathBuf)> {
+    // System-scope `/Applications/...` paths first so
+    // operators with a global Chrome install hit it before any
+    // accidental personal copy under `~/Applications`.
+    let system_pairs: &[(BrowserKind, &str)] = &[
+        (
+            BrowserKind::Chrome,
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ),
+        (
+            BrowserKind::Chromium,
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ),
+        (
+            BrowserKind::Edge,
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ),
+    ];
+
+    let mut out: Vec<(BrowserKind, PathBuf)> = Vec::with_capacity(6);
+    for (kind, path) in system_pairs {
+        out.push((kind.clone(), PathBuf::from(*path)));
+    }
+
+    if let Some(h) = home {
+        // Strip the leading `/` on the system path so `Path::join`
+        // attaches it relative to `<home>` rather than treating
+        // it as an absolute that resets the join target.
+        for (kind, path) in system_pairs {
+            let suffix = path.trim_start_matches('/');
+            out.push((kind.clone(), PathBuf::from(h).join(suffix)));
+        }
+    }
+
+    out
 }
 
 /// Pure builder for the Windows candidate list. Always
@@ -272,6 +328,50 @@ mod tests {
             paths.iter().any(|p| p.contains("PFx86") && p.ends_with(r"Microsoft\Edge\Application\msedge.exe")),
             "Program Files (x86) Edge missing: {paths:?}"
         );
+    }
+
+    #[test]
+    fn macos_candidates_with_home_includes_user_paths() {
+        let cands = macos_candidates(Some("/Users/foo"));
+        // 3 system + 3 user = 6.
+        assert_eq!(cands.len(), 6);
+        let paths: Vec<_> = cands.iter().map(|(_, p)| p.to_string_lossy().into_owned()).collect();
+        assert!(
+            paths.iter().any(|p| p == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            "system Chrome missing: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p
+                == "/Users/foo/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            "user Chrome missing: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn macos_candidates_without_home_falls_back_to_system() {
+        let cands = macos_candidates(None);
+        // Only 3 system entries.
+        assert_eq!(cands.len(), 3);
+    }
+
+    #[test]
+    fn macos_candidates_system_ranks_before_user() {
+        // Operator preference: a global install wins over a
+        // personal copy. Anchors the Vec ordering against drift.
+        let cands = macos_candidates(Some("/Users/foo"));
+        let first_user_idx = cands
+            .iter()
+            .position(|(_, p)| p.to_string_lossy().contains("/Users/foo"))
+            .expect("at least one user-scope entry");
+        // All entries before the first user-scope must be system-scope.
+        for (idx, (_, p)) in cands.iter().enumerate() {
+            if idx >= first_user_idx { break; }
+            assert!(
+                p.starts_with("/Applications"),
+                "expected /Applications prefix at idx {idx}, got {}",
+                p.display()
+            );
+        }
     }
 
     #[test]
