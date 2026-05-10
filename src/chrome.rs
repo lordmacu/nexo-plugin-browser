@@ -106,23 +106,39 @@ pub struct ChromeLauncher;
 
 impl ChromeLauncher {
     pub async fn launch(config: &BrowserConfig) -> anyhow::Result<RunningChrome> {
-        // Phase 27.x.browser-windows-discovery — auto-detect now
-        // returns a typed `BrowserExecutable` carrying the kind.
-        // The override branch wraps the operator-supplied path in
-        // a `Custom` kind. S9 adds the kind-tagged tracing log.
-        let resolved: BrowserExecutable = if config.executable.is_empty() {
-            find_chrome_executable().ok_or_else(|| {
-                anyhow!(
-                    "no Chrome/Chromium/Edge executable found — install Chrome / Chromium / Edge \
-                     or set NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path"
-                )
-            })?
+        // Phase 27.x.browser-windows-discovery — resolve the
+        // browser via the two-tier (bundled candidates + PATH)
+        // discovery in `chrome::discovery`. Override branch wraps
+        // the operator-supplied path in a `Custom` kind so the
+        // log line below is deterministic regardless of which
+        // path the caller took.
+        let (resolved, source): (BrowserExecutable, &'static str) = if config.executable.is_empty()
+        {
+            (
+                find_chrome_executable().ok_or_else(|| {
+                    anyhow!(
+                        "no Chrome/Chromium/Edge executable found — install Chrome / Chromium / \
+                         Edge or set NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path"
+                    )
+                })?,
+                "auto-detect",
+            )
         } else {
-            BrowserExecutable {
-                kind: BrowserKind::Custom,
-                path: PathBuf::from(&config.executable),
-            }
+            (
+                BrowserExecutable {
+                    kind: BrowserKind::Custom,
+                    path: PathBuf::from(&config.executable),
+                },
+                "env-override",
+            )
         };
+        tracing::info!(
+            target: "browser.discovery",
+            kind = ?resolved.kind,
+            path = %resolved.path.display(),
+            source = source,
+            "Chrome/Chromium/Edge executable resolved"
+        );
         let exe = &resolved.path;
 
         let mut args = vec![
