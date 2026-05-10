@@ -365,6 +365,13 @@ mod tests {
         }
     }
 
+    // Unix-only: relies on the `sleep` binary + `libc::kill(pid, 0)`
+    // ESRCH probe to verify process reaping. Windows uses different
+    // process-management primitives (`OpenProcess` / `WaitForSingleObject`)
+    // and ships no `sleep`. The reaping logic in `RunningChrome::shutdown`
+    // itself is portable (uses `tokio::process::Child::wait`); only the
+    // test harness is Unix-specific.
+    #[cfg(unix)]
     #[tokio::test]
     async fn shutdown_reaps_process() {
         let child = TokioCommand::new("sleep")
