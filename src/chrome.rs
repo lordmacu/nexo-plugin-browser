@@ -114,15 +114,23 @@ impl ChromeLauncher {
         // path the caller took.
         let (resolved, source): (BrowserExecutable, &'static str) = if config.executable.is_empty()
         {
-            (
-                find_chrome_executable().ok_or_else(|| {
-                    anyhow!(
-                        "no Chrome/Chromium/Edge executable found — install Chrome / Chromium / \
-                         Edge or set NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path"
-                    )
-                })?,
-                "auto-detect",
-            )
+            // Auto-detect via the two-tier resolver. On `Err` the
+            // resolver hands back the full searched-paths list
+            // (S11) so the operator's actionable hint quotes
+            // every probe site.
+            let exe = find_chrome_executable().map_err(|e| match &e {
+                DiscoveryError::NotFound { searched } => anyhow!(
+                    "no Chrome/Chromium/Edge executable found — searched {} location(s):\n  {}\nset \
+                     NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path to override",
+                    searched.len(),
+                    searched.join("\n  "),
+                ),
+                // `OverrideMissing` only originates from the
+                // override branch below; the auto-detect arm
+                // can't produce it.
+                DiscoveryError::OverrideMissing { .. } => anyhow!(e.to_string()),
+            })?;
+            (exe, "auto-detect")
         } else {
             // Phase 27.x.browser-windows-discovery S10 — fail-fast
             // when an explicit override points at a missing path.

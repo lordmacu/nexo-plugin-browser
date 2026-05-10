@@ -22,68 +22,10 @@
 //! - **S4–S8:** swap `which_exists` for `which::which`, add Windows
 //!   + macOS candidate lists + Tier 2 fallback per OS.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use super::{BrowserExecutable, BrowserKind};
+use super::{BrowserExecutable, BrowserKind, DiscoveryError};
 
-/// Tier 1 — bundled candidate paths per OS. Returns the first
-/// candidate that exists on disk, or `None` if every well-known
-/// install path is empty (caller falls through to the Tier 2
-/// PATH lookup added in S8).
-///
-/// Each per-OS branch defers candidate construction to a pure
-/// `*_candidates(env_vars...)` builder so the lists can be tested
-/// without filesystem access on any host (a Linux dev box can
-/// validate the Windows candidate shape).
-#[cfg(target_os = "windows")]
-#[allow(dead_code)] // wired up to `find_chrome_executable` in S8
-fn find_in_candidates() -> Option<BrowserExecutable> {
-    let local_app = std::env::var("LOCALAPPDATA").ok();
-    let program_files =
-        std::env::var("ProgramFiles").unwrap_or_else(|_| String::from(r"C:\Program Files"));
-    // `std::env::var` accepts the parenthesized name verbatim;
-    // call it out so the next reader doesn't reach for shell
-    // expansion or a `${...}` form.
-    let program_files_x86 = std::env::var("ProgramFiles(x86)")
-        .unwrap_or_else(|_| String::from(r"C:\Program Files (x86)"));
-
-    let candidates = windows_candidates(local_app.as_deref(), &program_files, &program_files_x86);
-
-    candidates
-        .into_iter()
-        .find(|(_, p)| p.exists())
-        .map(|(kind, path)| BrowserExecutable { kind, path })
-}
-
-/// macOS bundled candidates — `.app` bundles in `/Applications`
-/// (admin install) and `~/Applications` (per-user install,
-/// rare but legitimate). The pure builder
-/// `macos_candidates(home)` is cfg-free for testability.
-#[cfg(target_os = "macos")]
-#[allow(dead_code)] // wired up in S8
-fn find_in_candidates() -> Option<BrowserExecutable> {
-    let home = std::env::var("HOME").ok();
-    let candidates = macos_candidates(home.as_deref());
-
-    candidates
-        .into_iter()
-        .find(|(_, p)| p.exists())
-        .map(|(kind, path)| BrowserExecutable { kind, path })
-}
-
-/// Linux bundled candidates — `apt`/`snap` install paths plus
-/// the Termux Android prefix. Same shape as `windows_candidates`
-/// / `macos_candidates`: pure builder for testability, runtime
-/// wrapper handles the disk probe.
-#[cfg(all(unix, not(target_os = "macos")))]
-#[allow(dead_code)] // wired up in S8
-fn find_in_candidates() -> Option<BrowserExecutable> {
-    let candidates = linux_candidates();
-    candidates
-        .into_iter()
-        .find(|(_, p)| p.exists())
-        .map(|(kind, path)| BrowserExecutable { kind, path })
-}
 
 /// Pure builder for the Linux candidate list (covers Termux on
 /// Android too — its prefix is a deterministic path the package
@@ -227,76 +169,108 @@ fn windows_candidates(
 /// Find the first available Chrome/Chromium/Edge executable on
 /// the host. Two-tier strategy:
 ///
-///   1. Tier 1 — bundled candidates per OS
-///      (`find_in_candidates`).
-///   2. Tier 2 — PATH lookup via `which::which`
-///      (`find_in_path`). Picks up Chrome installed at a
-///      non-standard path that's still reachable via the
-///      operator's `PATH` (corp custom install, Homebrew shim).
+///   1. Tier 1 — bundled candidates per OS (absolute paths).
+///   2. Tier 2 — PATH lookup via `which::which` (bare names).
+///      Picks up Chrome installed at a non-standard path that's
+///      still reachable via the operator's `PATH` (corp custom
+///      install, Homebrew shim).
 ///
-/// Returns `None` only when both tiers exhaust without finding a
-/// usable browser. Callers that need the searched-paths list for
-/// diagnostics use the `find_chrome_executable_with_searched`
-/// variant added in S11.
-pub(super) fn find_chrome_executable() -> Option<BrowserExecutable> {
-    if let Some(found) = find_in_candidates() {
-        return Some(found);
+/// On `Err` the resolver lists every concrete path tested so the
+/// operator can paste the list straight into a bug report or set
+/// `NEXO_PLUGIN_BROWSER_EXECUTABLE` against an absolute path
+/// they know exists. The `$PATH lookup: <name>` rows make Tier 2
+/// failures self-explanatory.
+pub(super) fn find_chrome_executable() -> Result<BrowserExecutable, DiscoveryError> {
+    let mut searched: Vec<String> = Vec::new();
+
+    // Tier 1 — bundled per-OS candidate list.
+    for (kind, path) in bundled_candidates() {
+        let path_str = path.to_string_lossy().into_owned();
+        if path.exists() {
+            return Ok(BrowserExecutable { kind, path });
+        }
+        searched.push(path_str);
     }
-    find_in_path()
-}
 
-/// Tier 2 — PATH lookup. Tries each per-OS bare-name candidate
-/// through `which::which` (which honours `PATHEXT` on Windows).
-/// First resolution wins.
-#[cfg(target_os = "windows")]
-fn find_in_path() -> Option<BrowserExecutable> {
-    let names: &[(BrowserKind, &str)] = &[
-        // `chrome` resolves to `chrome.exe` via PATHEXT — we
-        // never have to append `.exe` manually.
-        (BrowserKind::Chrome, "chrome"),
-        (BrowserKind::Edge, "msedge"),
-    ];
-    resolve_first_in_path(names)
-}
-
-#[cfg(target_os = "macos")]
-fn find_in_path() -> Option<BrowserExecutable> {
-    // macOS PATH almost never contains Chrome (apps live in
-    // `.app` bundles), but Homebrew Cask sometimes drops a
-    // `google-chrome` shim under `/usr/local/bin` or
-    // `/opt/homebrew/bin`. Honour it if present.
-    let names: &[(BrowserKind, &str)] = &[
-        (BrowserKind::Chrome, "google-chrome"),
-        (BrowserKind::Chromium, "chromium"),
-    ];
-    resolve_first_in_path(names)
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn find_in_path() -> Option<BrowserExecutable> {
-    // The bare-name candidates the legacy list carried — preserved
-    // here so a custom apt repo that drops `google-chrome` somewhere
-    // other than `/usr/bin` still resolves.
-    let names: &[(BrowserKind, &str)] = &[
-        (BrowserKind::Chrome, "google-chrome"),
-        (BrowserKind::Chrome, "google-chrome-stable"),
-        (BrowserKind::Chromium, "chromium-browser"),
-        (BrowserKind::Chromium, "chromium"),
-    ];
-    resolve_first_in_path(names)
-}
-
-/// Resolve the first name in the list via `which::which`.
-fn resolve_first_in_path(names: &[(BrowserKind, &str)]) -> Option<BrowserExecutable> {
-    for (kind, name) in names {
+    // Tier 2 — PATH lookup.
+    for (kind, name) in path_lookup_names() {
+        // Annotate the entry so the operator can tell a bundled
+        // miss (`/usr/bin/google-chrome`) from a PATH miss
+        // (`$PATH lookup: chrome`).
+        searched.push(format!("$PATH lookup: {name}"));
         if let Ok(path) = which::which(name) {
-            return Some(BrowserExecutable {
+            return Ok(BrowserExecutable {
                 kind: kind.clone(),
                 path,
             });
         }
     }
-    None
+
+    Err(DiscoveryError::NotFound { searched })
+}
+
+/// Bundled candidate list for the current host — dispatched per
+/// OS. Returns absolute paths; the resolver probes each with
+/// `Path::exists`.
+fn bundled_candidates() -> Vec<(BrowserKind, PathBuf)> {
+    #[cfg(target_os = "windows")]
+    {
+        let local_app = std::env::var("LOCALAPPDATA").ok();
+        let program_files = std::env::var("ProgramFiles")
+            .unwrap_or_else(|_| String::from(r"C:\Program Files"));
+        let program_files_x86 = std::env::var("ProgramFiles(x86)")
+            .unwrap_or_else(|_| String::from(r"C:\Program Files (x86)"));
+        return windows_candidates(local_app.as_deref(), &program_files, &program_files_x86);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").ok();
+        return macos_candidates(home.as_deref());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return linux_candidates();
+    }
+    #[cfg(not(any(target_os = "windows", unix)))]
+    {
+        Vec::new()
+    }
+}
+
+/// Tier 2 — PATH lookup name list for the current host.
+fn path_lookup_names() -> &'static [(BrowserKind, &'static str)] {
+    #[cfg(target_os = "windows")]
+    {
+        // `chrome` resolves to `chrome.exe` via PATHEXT.
+        return &[
+            (BrowserKind::Chrome, "chrome"),
+            (BrowserKind::Edge, "msedge"),
+        ];
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // Homebrew Cask sometimes drops these as shims.
+        return &[
+            (BrowserKind::Chrome, "google-chrome"),
+            (BrowserKind::Chromium, "chromium"),
+        ];
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // Bare names from the legacy list — preserved so a
+        // custom apt repo dropping Chrome outside `/usr/bin`
+        // still resolves.
+        return &[
+            (BrowserKind::Chrome, "google-chrome"),
+            (BrowserKind::Chrome, "google-chrome-stable"),
+            (BrowserKind::Chromium, "chromium-browser"),
+            (BrowserKind::Chromium, "chromium"),
+        ];
+    }
+    #[cfg(not(any(target_os = "windows", unix)))]
+    {
+        &[]
+    }
 }
 
 /// Cross-platform existence probe.
@@ -312,53 +286,25 @@ fn resolve_first_in_path(names: &[(BrowserKind, &str)]) -> Option<BrowserExecuta
 /// Replaces the hand-rolled `which_exists` removed in this
 /// commit, which split PATH by `:` unconditionally — broke
 /// Windows (drive letters got truncated) and missed `PATHEXT`.
-#[allow(dead_code)] // wired to override-path validation in S10
-fn probe_exists(name: &str) -> bool {
-    let path = Path::new(name);
-    if path.is_absolute() {
-        return path.exists();
-    }
-    which::which(name).is_ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn probe_exists_absolute_existing_returns_true() {
+    fn which_finds_cargo_on_test_host() {
         // `cargo` is shipped with the toolchain so the host that
-        // runs `cargo nextest` is guaranteed to have it. Resolve
-        // its absolute path via the canonical lookup, then confirm
-        // the absolute-path branch agrees.
-        let cargo = which::which("cargo").expect("cargo on PATH");
-        assert!(probe_exists(cargo.to_str().unwrap()));
+        // runs `cargo nextest` is guaranteed to have it. Smoke
+        // check that the `which::which` we lean on for Tier 2
+        // resolves a known-present binary on every platform.
+        assert!(which::which("cargo").is_ok(), "cargo must be on test host PATH");
     }
 
     #[test]
-    fn probe_exists_absolute_missing_returns_false() {
-        // Use a path that's deterministically absent across CI
-        // images. `/nonexistent/...` is not reserved on any OS,
-        // but the leading slash forces the absolute branch on
-        // Unix and lets Windows test runners fall through to the
-        // `Path::exists` `false` immediately too.
-        assert!(!probe_exists("/nonexistent/nexo-plugin-browser-discovery-probe"));
-    }
-
-    #[test]
-    fn probe_exists_bare_name_in_path() {
-        // `cargo` is on PATH whenever `cargo nextest` runs the
-        // test, so this exercise the `which::which` branch on
-        // every platform.
-        assert!(probe_exists("cargo"));
-    }
-
-    #[test]
-    fn probe_exists_bare_name_not_in_path() {
-        // Garbage name unlikely to clash with any binary; if a
-        // future contributor names a tool this we'll know via the
-        // panic. Tests `which::which` returning `Err`.
-        assert!(!probe_exists("nexo-plugin-browser-this-name-must-not-exist-zzz"));
+    fn which_returns_err_for_garbage_name() {
+        // Sentinel name unlikely to clash with any real binary.
+        // Defends against a future `which` upgrade returning Ok
+        // for a non-existent name.
+        assert!(which::which("nexo-plugin-browser-this-must-not-exist-zzz").is_err());
     }
 
     #[test]
@@ -498,6 +444,22 @@ mod tests {
                 p.display()
             );
         }
+    }
+
+    #[test]
+    fn bundled_candidates_dispatches_per_host() {
+        // Smoke check: the host-dispatcher returns the expected
+        // per-OS shape. Useful regression guard if a future
+        // contributor adds a new platform branch and forgets to
+        // wire it through.
+        let cands = bundled_candidates();
+        assert!(!cands.is_empty(), "host should produce at least one candidate");
+    }
+
+    #[test]
+    fn path_lookup_names_dispatches_per_host() {
+        let names = path_lookup_names();
+        assert!(!names.is_empty(), "host should have at least one PATH lookup name");
     }
 
     #[test]
