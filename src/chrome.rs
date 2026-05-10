@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -5,6 +6,65 @@ use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
 use nexo_config::BrowserConfig;
+
+/// Categorisation of a discovered browser. Drives kind-specific
+/// quirks at launch time (e.g. Edge in some builds requires
+/// `--remote-allow-origins=*` for CDP). The taxonomy is pruned
+/// to the kinds we actually launch via CDP — derivative browsers
+/// (Brave, Vivaldi, Opera) are intentionally excluded from
+/// auto-detect; operators run them via the explicit
+/// `NEXO_PLUGIN_BROWSER_EXECUTABLE` override.
+///
+/// Mirrors the OpenClaw `BrowserExecutable.kind` shape but
+/// trimmed — see brainstorm/spec for the reduction rationale.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowserKind {
+    Chrome,
+    Chromium,
+    /// `msedge` — Chromium-based, CDP-compatible. Common on
+    /// Windows enterprise installs where Chrome may be absent.
+    Edge,
+    /// Operator-supplied path via
+    /// `NEXO_PLUGIN_BROWSER_EXECUTABLE`. We cannot infer kind
+    /// from a custom path without sniffing the binary, so we
+    /// keep it opaque.
+    Custom,
+}
+
+/// A successfully discovered browser executable. The `kind` is
+/// informational (logged on launch); `path` is the absolute
+/// filesystem path the launcher will spawn.
+#[derive(Debug, Clone)]
+pub struct BrowserExecutable {
+    pub kind: BrowserKind,
+    pub path: PathBuf,
+}
+
+/// Errors produced by the discovery layer. Public so future
+/// integration tests can match on the shape; `launch()` wraps
+/// these in `anyhow::Error` for the operator-facing path.
+#[derive(Debug, thiserror::Error)]
+pub enum DiscoveryError {
+    /// Auto-detect exhausted every Tier 1 (bundled candidates)
+    /// and Tier 2 (PATH lookup) check without finding a usable
+    /// browser. `searched` lists every concrete path the
+    /// resolver tested so the operator can copy-paste it into a
+    /// bug report or set `NEXO_PLUGIN_BROWSER_EXECUTABLE`.
+    #[error(
+        "no Chrome/Chromium/Edge executable found; searched {} paths; \
+         set NEXO_PLUGIN_BROWSER_EXECUTABLE to override",
+        searched.len()
+    )]
+    NotFound { searched: Vec<String> },
+
+    /// `NEXO_PLUGIN_BROWSER_EXECUTABLE` was set but points at a
+    /// path that doesn't exist. We fail-fast here rather than
+    /// silently fall back to auto-detect — explicit override
+    /// implies strong intent; a typo masked by silent fallback
+    /// is harder to diagnose than a clear error.
+    #[error("NEXO_PLUGIN_BROWSER_EXECUTABLE points to non-existent path: {path}")]
+    OverrideMissing { path: String },
+}
 
 pub struct RunningChrome {
     pub ws_url: String,
@@ -190,6 +250,46 @@ fn which_exists(name: &str) -> bool {
 mod tests {
     use super::*;
     use tokio::process::Command as TokioCommand;
+
+    #[test]
+    fn browser_kind_debug_shape() {
+        // Smoke check that the public Debug projection lines up
+        // with what we log on launch — operators grep this.
+        assert_eq!(format!("{:?}", BrowserKind::Chrome), "Chrome");
+        assert_eq!(format!("{:?}", BrowserKind::Chromium), "Chromium");
+        assert_eq!(format!("{:?}", BrowserKind::Edge), "Edge");
+        assert_eq!(format!("{:?}", BrowserKind::Custom), "Custom");
+    }
+
+    #[test]
+    fn browser_executable_round_trips_through_clone() {
+        let exe = BrowserExecutable {
+            kind: BrowserKind::Chrome,
+            path: PathBuf::from("/usr/bin/google-chrome"),
+        };
+        let cloned = exe.clone();
+        assert_eq!(cloned.kind, BrowserKind::Chrome);
+        assert_eq!(cloned.path, exe.path);
+    }
+
+    #[test]
+    fn discovery_error_not_found_displays_searched_count() {
+        let err = DiscoveryError::NotFound {
+            searched: vec!["/a".into(), "/b".into(), "/c".into()],
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("3 paths"), "got: {msg}");
+        assert!(msg.contains("NEXO_PLUGIN_BROWSER_EXECUTABLE"), "got: {msg}");
+    }
+
+    #[test]
+    fn discovery_error_override_missing_includes_path() {
+        let err = DiscoveryError::OverrideMissing {
+            path: "/nonexistent/chrome.exe".into(),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("/nonexistent/chrome.exe"), "got: {msg}");
+    }
 
     fn make_running_chrome(child: tokio::process::Child, pid: u32) -> RunningChrome {
         RunningChrome {
