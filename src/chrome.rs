@@ -124,10 +124,25 @@ impl ChromeLauncher {
                 "auto-detect",
             )
         } else {
+            // Phase 27.x.browser-windows-discovery S10 — fail-fast
+            // when an explicit override points at a missing path.
+            // Pre-S10 we silently fell through to the spawn step;
+            // the operator then saw a generic
+            // "failed to spawn Chrome (...)" with the real cause
+            // (NotFound) buried in the OS error chain. An
+            // explicit override implies strong intent — a typo
+            // is far more likely than the operator wanting an
+            // implicit fallback to auto-detect.
+            let override_path = PathBuf::from(&config.executable);
+            if !override_path.exists() {
+                anyhow::bail!(DiscoveryError::OverrideMissing {
+                    path: config.executable.clone(),
+                });
+            }
             (
                 BrowserExecutable {
                     kind: BrowserKind::Custom,
-                    path: PathBuf::from(&config.executable),
+                    path: override_path,
                 },
                 "env-override",
             )
@@ -286,6 +301,52 @@ mod tests {
         };
         let msg = format!("{err}");
         assert!(msg.contains("/nonexistent/chrome.exe"), "got: {msg}");
+    }
+
+    /// Minimal `BrowserConfig` with `executable` field set;
+    /// other fields populated with the same defaults the YAML
+    /// loader applies. Local helper so the override-missing
+    /// test below doesn't need to deserialize a TOML/YAML stub.
+    fn config_with_executable(exe: &str) -> BrowserConfig {
+        BrowserConfig {
+            headless: false,
+            executable: exe.to_string(),
+            cdp_url: String::new(),
+            user_data_dir: "./data/browser/profile".to_string(),
+            window_width: 1280,
+            window_height: 800,
+            connect_timeout_ms: 10_000,
+            command_timeout_ms: 15_000,
+            args: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn launch_fails_fast_when_override_path_missing() {
+        // `NEXO_PLUGIN_BROWSER_EXECUTABLE` (surface form: the
+        // `executable` field on `BrowserConfig`) was set to a
+        // path that doesn't exist. Pre-S10 we'd silently fall
+        // through to spawn and bury the actual error inside an
+        // OS NotFound. Post-S10 we surface the typed
+        // `DiscoveryError::OverrideMissing` so the operator sees
+        // the typo immediately.
+        let cfg = config_with_executable("/definitely-not-a-real/chrome-binary-xyz");
+        // `RunningChrome` doesn't derive `Debug` (holds a
+        // `tokio::process::Child`), so `.expect_err` won't
+        // compile. Match instead.
+        let err = match ChromeLauncher::launch(&cfg).await {
+            Ok(_) => panic!("launch must fail-fast on missing override"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("/definitely-not-a-real/chrome-binary-xyz"),
+            "error must echo the bad path: {msg}"
+        );
+        assert!(
+            msg.contains("non-existent path"),
+            "error must label the failure mode: {msg}"
+        );
     }
 
     fn make_running_chrome(child: tokio::process::Child, pid: u32) -> RunningChrome {
