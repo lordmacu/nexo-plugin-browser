@@ -1,11 +1,15 @@
-# Activated 2026-05-07 — repo published to
-# `github.com/lordmacu/nexo-plugin-browser` (Phase 81.17.c
-# follow-up `81.17.c.publish-github`).
+# Tag push (`v0.2.2`, `v0.2.3`, …) builds release binaries for every
+# target the `nexo-rs` daemon ships for and creates a GitHub Release
+# in the layout `nexo plugin install` expects:
+#   * bare `nexo-plugin.toml` at release root
+#   * `<plugin_id>-<version>-<target>.tar.gz` containing
+#     `nexo-plugin.toml` + `bin/<plugin_id>` at archive root
+#   * `<...>.tar.gz.sha256` sidecar with the hex digest
 #
-# Tag push (`v0.2.0`, `v0.2.1`, …) builds release binaries for
-# linux-x64 + macos-arm64 and creates a GitHub Release with the
-# assets attached. Operators install via
-# `curl -L <release-url>/nexo-plugin-browser-<target>.tar.gz`.
+# Targets: x86_64/aarch64 musl static (via cargo-zigbuild, matching
+# `nexo-rs`'s own release) + x86_64/aarch64 macOS. The plugin's deps
+# are all on crates.io — no proyecto sibling checkout needed. Operators
+# run `nexo plugin install lordmacu/nexo-plugin-browser`.
 
 name: release
 
@@ -23,52 +27,56 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: tar.gz
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+          - os: macos-14
+            target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
-            archive: tar.gz
     steps:
       - name: Checkout plugin
         uses: actions/checkout@v4
         with:
           path: nexo-plugin-browser
-      # Path deps in Cargo.toml resolve `../proyecto/crates/...`
-      # — fetch the daemon workspace alongside the plugin so
-      # cargo can build until 81.17.c.crates-publish ships.
-      - name: Checkout proyecto (path-dep workspace)
-        uses: actions/checkout@v4
-        with:
-          repository: lordmacu/nexo-rs
-          path: proyecto
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: cargo build --release
+
+      # ring's cc-rs build.rs calls `*-linux-musl-gcc` for the musl
+      # targets (rustls pulls ring); install musl-tools to satisfy it.
+      - name: Install musl-tools
+        if: contains(matrix.target, 'linux-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install zig (pinned)
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: "0.13.0"
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked --version 0.22.3
+
+      - name: cargo zigbuild --release
         working-directory: nexo-plugin-browser
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo zigbuild --release --target ${{ matrix.target }}
+
       - name: package (nexo plugin install layout)
         working-directory: nexo-plugin-browser
         run: |
-          # `nexo plugin install` (Phase 31.1.c) expects:
-          #   * bare `nexo-plugin.toml` at release root.
-          #   * `<plugin_id>-<version>-<target>.tar.gz` containing
-          #     `nexo-plugin.toml` + `bin/<plugin_id>` at archive
-          #     root (extractor reads `bin/browser`, not the
-          #     binary's crate name).
-          #   * `<...>.tar.gz.sha256` sidecar with the hex digest.
           set -euo pipefail
           mkdir -p dist/staging/bin
-          cp target/${{ matrix.target }}/release/nexo-plugin-browser \
+          cp "target/${{ matrix.target }}/release/nexo-plugin-browser" \
              dist/staging/bin/browser
           cp nexo-plugin.toml dist/staging/nexo-plugin.toml
 
-          PLUGIN_ID=$(grep -E '^id = ' nexo-plugin.toml | head -1 | sed -E 's/id = "([^"]+)"/\1/')
-          VERSION=$(grep -E '^version = ' nexo-plugin.toml | head -1 | sed -E 's/version = "([^"]+)"/\1/')
+          PLUGIN_ID=$(grep -E '^id[[:space:]]*=' nexo-plugin.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION=$(grep -E '^version[[:space:]]*=' nexo-plugin.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
           TARBALL="${PLUGIN_ID}-${VERSION}-${{ matrix.target }}.tar.gz"
 
           tar czf "dist/${TARBALL}" -C dist/staging bin/browser nexo-plugin.toml
-          sha256sum "dist/${TARBALL}" | awk '{print $1}' > "dist/${TARBALL}.sha256"
+          { sha256sum "dist/${TARBALL}" 2>/dev/null || shasum -a 256 "dist/${TARBALL}"; } | awk '{print $1}' > "dist/${TARBALL}.sha256"
           cp nexo-plugin.toml dist/nexo-plugin.toml
           ls -la dist/
       - uses: actions/upload-artifact@v4
