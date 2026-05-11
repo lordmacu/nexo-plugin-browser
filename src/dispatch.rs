@@ -1,15 +1,10 @@
 //! Subprocess-side tool dispatcher.
 //!
-//! Replicates the per-tool logic from
-//! `proyecto/crates/plugins/browser/src/tool.rs::Browser*Tool::call`
-//! without requiring an `AgentContext` (which the subprocess
-//! cannot construct). Each branch matches the in-tree behaviour
-//! 1:1; the goal is bit-for-bit parity, not feature evolution.
-//!
-//! When the in-tree tool.rs gains new args / behaviours,
-//! mirror the change here. Same applies to `tool_defs.rs` for the
-//! schema. CI lint follow-up `81.17.c.tool-defs-drift-test`
-//! validates that this file stays in sync.
+//! Maps each `browser_*` tool name to a [`BrowserPlugin::execute`]
+//! flow without requiring an `AgentContext` (which the subprocess
+//! cannot construct). Tool argument schemas live in
+//! `tool_defs.rs` — keep the two in sync when adding or changing
+//! a tool.
 
 use std::sync::Arc;
 
@@ -20,12 +15,8 @@ use serde_json::{json, Value};
 use crate::command::{BrowserCmd, BrowserResult};
 use crate::plugin::BrowserPlugin;
 
-/// Convert a [`BrowserResult`] into a JSON value matching what
-/// the in-tree `Browser*Tool::call` methods produce. Mirrors the
-/// private helper in
-/// `proyecto/crates/plugins/browser/src/tool.rs::result_to_json`
-/// (kept private upstream — duplicated here so the standalone
-/// repo doesn't need to mutate the copied tool.rs).
+/// Convert a [`BrowserResult`] into the JSON value that lands in
+/// a `tool.invoke` reply's `result` field.
 fn result_to_json(res: BrowserResult) -> Value {
     if !res.ok {
         return json!({
@@ -47,8 +38,7 @@ fn result_to_json(res: BrowserResult) -> Value {
     out
 }
 
-/// Allowed named keys for `browser_press_key`. Mirrors
-/// `proyecto/crates/plugins/browser/src/tool.rs::ALLOWED_KEY_NAMES`.
+/// Allowed named keys for `browser_press_key`.
 const ALLOWED_KEY_NAMES: &[&str] = &[
     "Enter", "Tab", "Escape",
     "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
@@ -56,7 +46,7 @@ const ALLOWED_KEY_NAMES: &[&str] = &[
     "Space",
 ];
 
-/// Match `tool_name` against the 12 `browser_*` tools and dispatch
+/// Match `tool_name` against the `browser_*` tools and dispatch
 /// to the matching `BrowserPlugin::execute` flow. Returns a JSON
 /// `Value` ready to land in the `tool.invoke` reply's `result`
 /// field, or [`ToolInvocationError`] for the host's

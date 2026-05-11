@@ -1,12 +1,9 @@
 //! Static [`ToolDef`] catalogue advertised in the
 //! `initialize` reply.
 //!
-//! Each entry is hand-rolled rather than derived from a per-tool
-//! `BrowserNavigateTool::tool_def()` accessor (which the in-tree
-//! crate had) so the standalone repo doesn't carry the
-//! `nexo-core::Plugin` / `nexo-llm::ToolDef` indirection layers.
-//! Adding a tool requires editing this file + `dispatch.rs` in
-//! lockstep — the test asserts the count matches.
+//! Each entry is hand-rolled. Adding a tool requires editing this
+//! file and `dispatch.rs` in lockstep — the test asserts the
+//! count matches.
 
 use nexo_microapp_sdk::plugin::ToolDef;
 use serde_json::json;

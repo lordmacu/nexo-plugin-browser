@@ -1,9 +1,8 @@
-//! Subprocess entrypoint for `nexo-plugin-browser`
-//! (Phase 81.17.c + 81.17.c.multi-profile).
+//! Subprocess entrypoint for `nexo-plugin-browser`.
 //!
 //! Wires:
 //!   - [`PluginAdapter`] — child-side JSON-RPC dispatch loop.
-//!   - [`browser_tool_defs`] — 12 `browser_*` tool defs advertised
+//!   - [`browser_tool_defs`] — the `browser_*` tool defs advertised
 //!     in the initialize reply.
 //!   - [`dispatch_browser_tool`] — per-tool routing for the
 //!     resolved [`BrowserPlugin`].
@@ -13,14 +12,13 @@
 //!     `${BASE}/profiles/<agent_id>/`; capped + idle-evicted
 //!     per [`profile_limits`].
 //!
-//! Configuration flows from the daemon via env vars set by
-//! `proyecto/src/main.rs::seed_browser_subprocess_env`:
+//! Configuration flows from the daemon via env vars:
 //!   * `NEXO_PLUGIN_BROWSER_HEADLESS`
 //!   * `NEXO_PLUGIN_BROWSER_USER_DATA_DIR` (BASE for per-agent dirs)
 //!   * `NEXO_PLUGIN_BROWSER_CDP_URL`
 //!   * `NEXO_PLUGIN_BROWSER_MAX_PROFILES`        (multi-profile cap)
 //!   * `NEXO_PLUGIN_BROWSER_PROFILE_IDLE_SECS`   (eviction threshold)
-//!   * `NEXO_PLUGIN_BROWSER_MULTI_PROFILE`       (opt-out → legacy)
+//!   * `NEXO_PLUGIN_BROWSER_MULTI_PROFILE`       (opt-out → single profile)
 
 use std::path::Path;
 use std::path::PathBuf;

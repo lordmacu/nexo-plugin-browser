@@ -1,19 +1,17 @@
 //! Build a [`nexo_config::BrowserConfig`] from environment
 //! variables. The daemon translates its `cfg.plugins.browser`
-//! YAML into env vars before spawning the subprocess
-//! (see `proyecto/src/main.rs::seed_browser_subprocess_env` in
-//! step 15); this module is the child-side reader.
+//! YAML into env vars before spawning the subprocess; this module
+//! is the child-side reader.
 //!
 //! Convention: every knob has a `NEXO_PLUGIN_BROWSER_*` name.
-//! Defaults match the in-tree YAML defaults so a daemon running
-//! the previous in-tree wiring + a daemon running the standalone
-//! binary produce identical Chrome behaviour.
+//! Defaults match the YAML loader's `#[serde(default)]` values so
+//! a missing env var behaves the same as an absent YAML key.
 
 use nexo_config::BrowserConfig;
 
 /// Read the browser config from `NEXO_PLUGIN_BROWSER_*` env vars.
-/// Missing vars fall back to the same defaults the in-tree YAML
-/// loader applies via `#[serde(default)]`.
+/// Missing vars fall back to the same defaults the YAML loader
+/// applies via `#[serde(default)]`.
 pub fn browser_config_from_env() -> BrowserConfig {
     BrowserConfig {
         headless: parse_bool("NEXO_PLUGIN_BROWSER_HEADLESS").unwrap_or(false),
@@ -26,7 +24,7 @@ pub fn browser_config_from_env() -> BrowserConfig {
         connect_timeout_ms: parse_u64("NEXO_PLUGIN_BROWSER_CONNECT_TIMEOUT_MS").unwrap_or(8_000),
         command_timeout_ms: parse_u64("NEXO_PLUGIN_BROWSER_COMMAND_TIMEOUT_MS").unwrap_or(30_000),
         // Comma-separated list, semicolons also accepted. Empty
-        // string => empty Vec (matching the in-tree YAML default).
+        // string => empty Vec.
         args: parse_args_csv("NEXO_PLUGIN_BROWSER_ARGS"),
     }
 }

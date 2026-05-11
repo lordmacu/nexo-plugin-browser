@@ -1,9 +1,8 @@
-//! Phase 27.x.browser-windows-discovery — browser executable
-//! discovery extracted into its own module so the per-platform
-//! candidate lists (Linux/macOS/Windows) can grow + be tested
-//! independently without bloating `chrome.rs`.
+//! Browser executable discovery: the per-platform candidate lists
+//! (Linux/macOS/Windows) live here so they can grow and be tested
+//! independently of `chrome.rs`.
 //!
-//! Strategy (full design in the spec — `Tier 1 → Tier 2`):
+//! Strategy:
 //!
 //!   1. **Tier 1 — bundled candidates.** Per-OS list of well-known
 //!      install paths (`/usr/bin/google-chrome`,
@@ -13,14 +12,6 @@
 //!   2. **Tier 2 — PATH lookup.** Falls through to `which::which`
 //!      so a Chrome in a custom path (corp install, Homebrew shim)
 //!      that's reachable via `PATH` still resolves.
-//!
-//! This file ships in two waves:
-//!
-//! - **S3 (this commit):** the legacy Linux-only logic moves here
-//!   verbatim so the rest of the workspace keeps compiling. No
-//!   behavior change.
-//! - **S4–S8:** swap `which_exists` for `which::which`, add Windows
-//!   + macOS candidate lists + Tier 2 fallback per OS.
 
 use std::path::PathBuf;
 
@@ -33,17 +24,13 @@ use super::{BrowserExecutable, BrowserKind, DiscoveryError};
 ///
 /// Unlike Windows/macOS this list is just absolute paths — no
 /// per-user vs system-scope split because Linux package managers
-/// install system-wide. The bare-name candidates that the legacy
-/// `find_chrome_executable` used (e.g. `google-chrome` without a
-/// path) move into the Tier 2 `find_in_path` PATH lookup added
-/// in S8.
+/// install system-wide. Bare-name candidates (e.g. `google-chrome`
+/// without a path) are handled by the Tier 2 PATH lookup.
 #[cfg_attr(not(any(all(unix, not(target_os = "macos")), test)), allow(dead_code))]
 fn linux_candidates() -> Vec<(BrowserKind, PathBuf)> {
     let pairs: &[(BrowserKind, &str)] = &[
-        // Chrome stable + the legacy non-suffixed binary that
-        // some distros symlink. Order: stable → unsuffixed
-        // (matches the legacy list's preference for the
-        // canonical `google-chrome` name).
+        // Chrome: the canonical `google-chrome` name first, then
+        // the `-stable` suffixed binary some distros ship.
         (BrowserKind::Chrome, "/usr/bin/google-chrome"),
         (BrowserKind::Chrome, "/usr/bin/google-chrome-stable"),
         // Chromium variants — `chromium-browser` is what Debian /
@@ -64,7 +51,8 @@ fn linux_candidates() -> Vec<(BrowserKind, PathBuf)> {
 }
 
 /// Pure builder for the macOS candidate list. Always compiled
-/// — see `windows_candidates` rationale.
+/// (cfg-free builder; the runtime caller is OS-gated) so a
+/// non-macOS dev box can test the candidate shape.
 ///
 /// Each browser ships as a `.app` bundle; the actual ELF / Mach-O
 /// binary lives at `<bundle>.app/Contents/MacOS/<exe-name>` per
@@ -113,7 +101,7 @@ fn macos_candidates(home: Option<&str>) -> Vec<(BrowserKind, PathBuf)> {
 
 /// Pure builder for the Windows candidate list. Always
 /// compiled — the `#[cfg(target_os = "windows")]` guard lives
-/// on the runtime caller `find_in_candidates`. Keeping the
+/// on the runtime caller `bundled_candidates`. Keeping the
 /// builder cfg-free lets a Linux/macOS dev box validate the
 /// candidate shape without spinning up a Windows runner.
 ///
@@ -257,9 +245,8 @@ fn path_lookup_names() -> &'static [(BrowserKind, &'static str)] {
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        // Bare names from the legacy list — preserved so a
-        // custom apt repo dropping Chrome outside `/usr/bin`
-        // still resolves.
+        // Bare names so a custom apt repo dropping Chrome
+        // outside `/usr/bin` still resolves via PATH.
         return &[
             (BrowserKind::Chrome, "google-chrome"),
             (BrowserKind::Chrome, "google-chrome-stable"),
@@ -375,13 +362,12 @@ mod tests {
     fn linux_candidates_include_chrome_chromium_termux() {
         let cands = linux_candidates();
         let paths: Vec<_> = cands.iter().map(|(_, p)| p.to_string_lossy().into_owned()).collect();
-        // Pre-existing path coverage preserved (regression guard).
         assert!(paths.iter().any(|p| p == "/usr/bin/google-chrome"));
         assert!(paths.iter().any(|p| p == "/usr/bin/google-chrome-stable"));
         assert!(paths.iter().any(|p| p == "/usr/bin/chromium-browser"));
         assert!(paths.iter().any(|p| p == "/usr/bin/chromium"));
         assert!(paths.iter().any(|p| p == "/snap/bin/chromium"));
-        // New: Termux Android prefix.
+        // Termux Android prefix.
         assert!(
             paths.iter().any(|p| p == "/data/data/com.termux/files/usr/bin/chromium"),
             "Termux Android path missing: {paths:?}"

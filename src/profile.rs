@@ -14,12 +14,10 @@
 //!   * [`profile_color_argb`] — stable ARGB int per agent for
 //!     the Chrome profile chip.
 //!
-//! Mirrors OpenClaw's profile-name sanitisation
-//! (`research/extensions/browser/src/browser/config.ts:301-361`)
-//! but is intentionally stricter: we accept only the same
-//! `[A-Za-z0-9_-]{1,64}` regex `nexo-plugin-manifest::id_regex`
-//! enforces for plugin / agent ids so operators have one
-//! mental model across the framework.
+//! The sanitiser is intentionally strict: it accepts only the
+//! same `[A-Za-z0-9_-]{1,64}` regex `nexo-plugin-manifest::id_regex`
+//! enforces for plugin / agent ids, so operators have one mental
+//! model across the framework.
 
 use std::path::{Path, PathBuf};
 
@@ -95,10 +93,6 @@ pub fn user_data_dir_for(base: &Path, agent_id: &str) -> PathBuf {
 /// stamp the Chrome profile chip with a per-agent color so
 /// operators eyeballing N parallel Chromes can tell them apart
 /// at a glance.
-///
-/// Mirrors
-/// `research/extensions/browser/src/browser/chrome.profile-decoration.ts:55-64`'s
-/// hex-to-signed-ARGB conversion.
 pub fn profile_color_argb(agent_id: &str) -> i32 {
     let digest = Sha256::digest(agent_id.as_bytes());
     let r = digest[0] as u32;
