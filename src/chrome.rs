@@ -7,10 +7,8 @@ use tokio::process::Command;
 
 use nexo_config::BrowserConfig;
 
-// Phase 27.x.browser-windows-discovery — discovery logic lives
-// in its own module so the per-platform candidate lists can grow
-// + be tested independently. S3 introduces the module with the
-// legacy Linux-only impl moved verbatim; S4–S8 evolve it.
+// Discovery logic lives in its own module so the per-platform
+// candidate lists can grow and be tested independently.
 mod discovery;
 use discovery::find_chrome_executable;
 
@@ -21,9 +19,6 @@ use discovery::find_chrome_executable;
 /// (Brave, Vivaldi, Opera) are intentionally excluded from
 /// auto-detect; operators run them via the explicit
 /// `NEXO_PLUGIN_BROWSER_EXECUTABLE` override.
-///
-/// Mirrors the OpenClaw `BrowserExecutable.kind` shape but
-/// trimmed — see brainstorm/spec for the reduction rationale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowserKind {
     Chrome,
@@ -106,18 +101,17 @@ pub struct ChromeLauncher;
 
 impl ChromeLauncher {
     pub async fn launch(config: &BrowserConfig) -> anyhow::Result<RunningChrome> {
-        // Phase 27.x.browser-windows-discovery — resolve the
-        // browser via the two-tier (bundled candidates + PATH)
-        // discovery in `chrome::discovery`. Override branch wraps
-        // the operator-supplied path in a `Custom` kind so the
-        // log line below is deterministic regardless of which
-        // path the caller took.
+        // Resolve the browser via the two-tier (bundled candidates
+        // + PATH) discovery in `chrome::discovery`. The override
+        // branch wraps the operator-supplied path in a `Custom`
+        // kind so the log line below is deterministic regardless
+        // of which path the caller took.
         let (resolved, source): (BrowserExecutable, &'static str) = if config.executable.is_empty()
         {
             // Auto-detect via the two-tier resolver. On `Err` the
-            // resolver hands back the full searched-paths list
-            // (S11) so the operator's actionable hint quotes
-            // every probe site.
+            // resolver hands back the full searched-paths list so
+            // the operator's actionable hint quotes every probe
+            // site.
             let exe = find_chrome_executable().map_err(|e| match &e {
                 DiscoveryError::NotFound { searched } => anyhow!(
                     "no Chrome/Chromium/Edge executable found — searched {} location(s):\n  {}\nset \
@@ -132,15 +126,14 @@ impl ChromeLauncher {
             })?;
             (exe, "auto-detect")
         } else {
-            // Phase 27.x.browser-windows-discovery S10 — fail-fast
-            // when an explicit override points at a missing path.
-            // Pre-S10 we silently fell through to the spawn step;
-            // the operator then saw a generic
+            // Fail-fast when an explicit override points at a
+            // missing path. Otherwise we'd fall through to spawn
+            // and the operator would see a generic
             // "failed to spawn Chrome (...)" with the real cause
-            // (NotFound) buried in the OS error chain. An
-            // explicit override implies strong intent — a typo
-            // is far more likely than the operator wanting an
-            // implicit fallback to auto-detect.
+            // (NotFound) buried in the OS error chain. An explicit
+            // override implies strong intent — a typo is far more
+            // likely than the operator wanting an implicit
+            // fallback to auto-detect.
             let override_path = PathBuf::from(&config.executable);
             if !override_path.exists() {
                 anyhow::bail!(DiscoveryError::OverrideMissing {
@@ -333,11 +326,10 @@ mod tests {
     async fn launch_fails_fast_when_override_path_missing() {
         // `NEXO_PLUGIN_BROWSER_EXECUTABLE` (surface form: the
         // `executable` field on `BrowserConfig`) was set to a
-        // path that doesn't exist. Pre-S10 we'd silently fall
-        // through to spawn and bury the actual error inside an
-        // OS NotFound. Post-S10 we surface the typed
+        // path that doesn't exist. We must surface the typed
         // `DiscoveryError::OverrideMissing` so the operator sees
-        // the typo immediately.
+        // the typo immediately rather than an OS NotFound buried
+        // inside a generic spawn failure.
         let cfg = config_with_executable("/definitely-not-a-real/chrome-binary-xyz");
         // `RunningChrome` doesn't derive `Debug` (holds a
         // `tokio::process::Child`), so `.expect_err` won't

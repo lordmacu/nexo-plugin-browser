@@ -3,10 +3,8 @@
 //! window's profile chip displays the agent's name + a stable
 //! per-agent color.
 //!
-//! Mirrors the OpenClaw TypeScript reference at
-//! `research/extensions/browser/src/browser/chrome.profile-decoration.ts:108-162`
-//! — same two fields (`profile.name`, `profile.profile_color`),
-//! same idempotent read-merge-write strategy. Pre-existing
+//! Touches just two fields (`profile.name`, `profile.profile_color`)
+//! with an idempotent read-merge-write strategy. Pre-existing
 //! Preferences keys are preserved verbatim so Chrome's other
 //! settings survive across decoration calls.
 //!

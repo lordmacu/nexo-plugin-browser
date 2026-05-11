@@ -1,27 +1,23 @@
 //! Subprocess-side BrowserPlugin: launches Chrome, attaches a CDP
 //! session, dispatches [`BrowserCmd`] → [`BrowserResult`].
 //!
-//! Phase 81.17.c.crates-publish slim-down — the in-tree daemon
-//! integration (broker bridge, circuit breaker, `Plugin` /
-//! `NexoPlugin` trait impls, manifest parsing) was removed
-//! because the subprocess flow handles those concerns at the
-//! `nexo_microapp_sdk::plugin::PluginAdapter` layer:
+//! This is the minimal CDP driver only. Daemon-integration
+//! concerns are handled elsewhere:
 //!
-//! - **Broker bridge**: PluginAdapter publishes/consumes broker
-//!   events through the daemon-routed JSON-RPC stdio frames.
+//! - **Broker bridge**: `nexo_microapp_sdk::plugin::PluginAdapter`
+//!   publishes/consumes broker events through the daemon-routed
+//!   JSON-RPC stdio frames.
 //! - **Manifest**: `include_str!("../nexo-plugin.toml")` is
-//!   parsed once by PluginAdapter::new — no need for a second
-//!   `cached_manifest`.
+//!   parsed once by `PluginAdapter::new`.
 //! - **Plugin trait**: irrelevant for subprocess plugins; the
 //!   daemon's `SubprocessNexoPlugin` adapter speaks the wire
 //!   protocol on the host side.
 //! - **CircuitBreaker**: replaced by per-command timeouts;
-//!   subprocess crashes / supervisor logic live in
-//!   `nexo-core::nexo_plugin_registry` (Phase 81.21).
+//!   subprocess crash / supervisor logic lives in
+//!   `nexo-core::nexo_plugin_registry`.
 //!
-//! What remains is the minimal CDP driver — enough for
-//! `dispatch.rs` to translate every `tool.invoke` into a
-//! `BrowserCmd` and call `execute`.
+//! `dispatch.rs` translates every `tool.invoke` into a
+//! `BrowserCmd` and calls `execute`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -130,10 +126,9 @@ impl BrowserPlugin {
 }
 
 impl BrowserPlugin {
-    /// Phase 81.17.c.multi-profile — close the active Chrome
-    /// session + kill the spawned Chrome process. Idempotent: a
-    /// second call after the inner state is already empty is a
-    /// no-op.
+    /// Close the active Chrome session and kill the spawned Chrome
+    /// process. Idempotent: a second call after the inner state is
+    /// already empty is a no-op.
     ///
     /// Drop order matters: clear `session` first so any pending
     /// CDP commands fail with the existing "no active session"

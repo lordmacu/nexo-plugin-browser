@@ -1,21 +1,18 @@
 //! Subprocess lifecycle + state persistence — proves the
 //! standalone binary survives multiple `tool.invoke` round trips
-//! against the SAME OnceCell-guarded `BrowserPlugin` instance.
+//! against the same cached `BrowserPlugin` instance.
 //!
-//! Phase 81.17.c hot-reload risk: when the daemon's reload
-//! coordinator (Phase 81.10) re-evaluates the agent registry, it
-//! must NOT kill the subprocess (the subprocess lifecycle is
-//! bound to the manifest's discovery, not the agent yaml).
-//! Daemon-side coverage lives in
-//! `proyecto/crates/core/tests/subprocess_plugin_e2e.rs` —
-//! that's the host-side test. THIS test verifies the
-//! subprocess-side guarantee: under repeated tool.invoke calls
-//! across simulated agent yaml reloads, the subprocess stays
-//! up + state is consistent.
+//! Hot-reload risk: when the daemon's reload coordinator
+//! re-evaluates the agent registry, it must NOT kill the
+//! subprocess (the subprocess lifecycle is bound to the
+//! manifest's discovery, not the agent yaml). This test verifies
+//! the subprocess-side guarantee: under repeated tool.invoke
+//! calls across simulated agent yaml reloads, the subprocess
+//! stays up and state is consistent.
 //!
 //! Test strategy: spawn the binary once, send N rounds of
 //! initialize/tool.invoke pairs. The binary's pid stays the
-//! same; the BrowserPlugin OnceCell stays primed. We exercise
+//! same; the cached `BrowserPlugin` stays primed. We exercise
 //! `browser_press_key` with a known-bad arg so we don't require
 //! Chromium — what we're testing is the dispatch loop's
 //! resilience, not Chrome.
