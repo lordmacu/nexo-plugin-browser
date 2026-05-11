@@ -398,9 +398,14 @@ mod tests {
             paths.iter().any(|p| p == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
             "system Chrome missing: {paths:?}"
         );
+        // Match the trailing `Applications/...` suffix + a `Users/foo`
+        // marker rather than the whole literal: `PathBuf::join` glues the
+        // home prefix on with the host separator, so on a Windows test
+        // host the join boundary is a backslash even though every other
+        // segment (and the runtime macOS path) stays `/`.
         assert!(
-            paths.iter().any(|p| p
-                == "/Users/foo/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            paths.iter().any(|p| p.ends_with("Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+                && p.contains("Users/foo")),
             "user Chrome missing: {paths:?}"
         );
     }
