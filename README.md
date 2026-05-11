@@ -17,6 +17,21 @@ through `tool.invoke` (contract v1.10.0).
 
 ## Quick start
 
+### Prerequisite — `nexo-rs` daemon
+
+Install the framework first (this plugin runs as one of its
+subprocesses):
+
+```bash
+curl -fsSL https://lordmacu.github.io/nexo-rs/install.sh | bash
+nexo --version   # ≥ 0.1.6
+```
+
+Other channels (Docker / Termux / source): see the
+[installation guide](https://lordmacu.github.io/nexo-rs/getting-started/installation.html).
+
+### Install the plugin
+
 ```bash
 # 1. Install the binary from crates.io.
 cargo install nexo-plugin-browser
