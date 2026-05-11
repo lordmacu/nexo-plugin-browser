@@ -95,6 +95,12 @@ fn invoke_press_key(
 /// every `plugin.browser`-targeted INFO line emitted so far.
 /// `tracing-subscriber` formats them as text; we filter on the
 /// substring `boot Chrome for agent profile`.
+///
+/// Unix-only: it flips the stderr fd to `O_NONBLOCK` via `libc` so
+/// `read_line` returns instead of blocking when nothing is buffered.
+/// The Windows pipe API has no drop-in equivalent, so the tests that
+/// assert on the boot log are `#[cfg(unix)]` too.
+#[cfg(unix)]
 fn collect_boot_log_agent_ids(
     stderr: &mut BufReader<std::process::ChildStderr>,
     deadline: Duration,
@@ -131,6 +137,7 @@ fn collect_boot_log_agent_ids(
     acc
 }
 
+#[cfg(unix)]
 fn parse_boot_agent_id(line: &str) -> Option<String> {
     if !line.contains("boot Chrome for agent profile") {
         return None;
@@ -172,6 +179,7 @@ fn shutdown_and_wait(
 
 // ── Tests ─────────────────────────────────────────────────────
 
+#[cfg(unix)] // asserts on the boot log via the Unix-only stderr drain
 #[test]
 fn distinct_agents_get_distinct_profile_dirs() {
     let (mut child, mut stdin, mut stdout, mut stderr) = spawn_with_env(&[]);
@@ -196,6 +204,7 @@ fn distinct_agents_get_distinct_profile_dirs() {
     shutdown_and_wait(&mut child, &mut stdin, &mut stdout);
 }
 
+#[cfg(unix)] // asserts on the boot log via the Unix-only stderr drain
 #[test]
 fn default_profile_when_agent_id_missing() {
     let (mut child, mut stdin, mut stdout, mut stderr) = spawn_with_env(&[]);
@@ -242,6 +251,7 @@ fn cap_returns_minus_33404_when_max_profiles_reached() {
     shutdown_and_wait(&mut child, &mut stdin, &mut stdout);
 }
 
+#[cfg(unix)] // asserts on the boot log via the Unix-only stderr drain
 #[test]
 fn invalid_agent_id_returns_minus_33402_before_chrome_boot() {
     let (mut child, mut stdin, mut stdout, mut stderr) = spawn_with_env(&[]);
@@ -264,6 +274,7 @@ fn invalid_agent_id_returns_minus_33402_before_chrome_boot() {
     shutdown_and_wait(&mut child, &mut stdin, &mut stdout);
 }
 
+#[cfg(unix)] // asserts on the boot log via the Unix-only stderr drain
 #[test]
 fn multi_profile_disabled_routes_all_to_default() {
     let (mut child, mut stdin, mut stdout, mut stderr) =

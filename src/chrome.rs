@@ -262,6 +262,7 @@ async fn wait_for_devtools_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)] // only the Unix-only `shutdown_reaps_process` test uses it
     use tokio::process::Command as TokioCommand;
 
     #[test]
@@ -349,6 +350,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)] // only used by the Unix-only `shutdown_reaps_process` test
     fn make_running_chrome(child: tokio::process::Child, pid: u32) -> RunningChrome {
         RunningChrome {
             ws_url: String::new(),
