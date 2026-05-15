@@ -9,6 +9,8 @@
 
 // CDP client lives in the workspace crate `nexo-cdp`.
 pub use nexo_cdp as cdp;
+pub mod admin;
+pub mod auto_discovery;
 pub mod boot;
 pub mod chrome;
 pub mod command;
