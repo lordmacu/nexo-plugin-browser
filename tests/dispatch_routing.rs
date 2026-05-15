@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use nexo_plugin_browser::{
-    config::BrowserConfig, dispatch::resolve_plugin_or_legacy, instance_registry,
-    BrowserPlugin,
+    config::BrowserConfig,
+    dispatch::{resolve_plugin_or_legacy, resolve_plugin_or_legacy_gated},
+    instance_registry, BrowserPlugin,
 };
 use serde_json::json;
 use serial_test::serial;
@@ -145,6 +146,30 @@ fn allow_agents_gate_admits_listed_agent() {
     .expect("alice admitted");
     assert!(Arc::ptr_eq(&plugin, &gated));
     instance_registry::clear();
+}
+
+#[test]
+#[serial]
+fn case3_legacy_disabled_refuses_fallback() {
+    // Follow-up `browser.0.4.0.deprecate-legacy-per-agent` —
+    // when the operator opts out of legacy fallback, dispatch
+    // case 3 (implicit + 0 declared) must error with
+    // Unavailable instead of using the per-agent plugin.
+    instance_registry::clear();
+    let legacy = make_plugin(None, &[]);
+    let err = resolve_plugin_or_legacy_gated(
+        &serde_json::json!({}),
+        "ana",
+        legacy,
+        /* legacy_enabled = */ false,
+    )
+    .err()
+    .expect("legacy disabled + no declared instances must error");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("no declared") || msg.contains("LEGACY_PER_AGENT"),
+        "error must guide operator: {msg}"
+    );
 }
 
 #[test]

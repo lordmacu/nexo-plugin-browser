@@ -32,7 +32,7 @@ use tokio::sync::Mutex;
 
 use nexo_plugin_browser::{
     browser_tool_defs,
-    dispatch::{dispatch_browser_tool, resolve_plugin_or_legacy},
+    dispatch::{dispatch_browser_tool, resolve_plugin_or_legacy_gated},
     env_config::browser_config_from_env,
     profile::{sanitize_id, user_data_dir_for},
     profile_decoration::decorate_profile_dir,
@@ -217,8 +217,12 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
             // for that agent until a tool actually targets it via
             // case 3, since `BrowserPlugin::new` is IO-free.
             let legacy = shared_plugin_for(agent_id, limits).await?;
-            let plugin =
-                resolve_plugin_or_legacy(&inv.args, agent_id, legacy.clone())?;
+            let plugin = resolve_plugin_or_legacy_gated(
+                &inv.args,
+                agent_id,
+                legacy.clone(),
+                limits.legacy_per_agent_enabled,
+            )?;
             // Re-key the legacy touch lookup using the same logic
             // as shared_plugin_for. Only valid when we actually
             // dispatched against `legacy` — when a declared instance

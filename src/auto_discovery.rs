@@ -274,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    async fn admin_launch_visible_returns_stub_ack() {
+    async fn admin_launch_visible_acks_and_marks_visible_next_boot() {
         instance_registry::clear();
         let tmp = tempfile::tempdir().unwrap();
         register("alpha", tmp.path().to_str().unwrap());
@@ -285,7 +285,11 @@ mod tests {
         }))
         .await;
         assert_eq!(r["ok"].as_bool(), Some(true));
-        assert_eq!(r["result"]["launched"].as_bool(), Some(false));
+        assert_eq!(
+            r["result"]["launched"].as_bool(),
+            Some(true),
+            "0.3.x follow-up: launch_visible now non-stub"
+        );
         instance_registry::clear();
     }
 

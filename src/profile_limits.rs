@@ -21,6 +21,16 @@
 const ENV_MAX_PROFILES: &str = "NEXO_PLUGIN_BROWSER_MAX_PROFILES";
 const ENV_IDLE_SECS: &str = "NEXO_PLUGIN_BROWSER_PROFILE_IDLE_SECS";
 const ENV_MULTI_PROFILE: &str = "NEXO_PLUGIN_BROWSER_MULTI_PROFILE";
+/// Phase 0.3.0 follow-up `browser.0.4.0.deprecate-legacy-per-agent`.
+/// Default `1` in the 0.3.x line; 0.4.0 will flip to `0` so the
+/// legacy per-`agent_id` profile fan-out (Phase 81.17.c.multi-profile)
+/// becomes opt-in instead of default.
+///
+/// When `0`, dispatch case 3 (implicit + 0 declared instances) errors
+/// with `Unavailable("no declared instances; configure
+/// browser.yaml or set NEXO_PLUGIN_BROWSER_LEGACY_PER_AGENT=1")`
+/// instead of spinning up a per-agent profile.
+const ENV_LEGACY_PER_AGENT: &str = "NEXO_PLUGIN_BROWSER_LEGACY_PER_AGENT";
 
 const DEFAULT_MAX_PROFILES: usize = 10;
 const MIN_MAX_PROFILES: usize = 1;
@@ -43,6 +53,11 @@ pub struct ProfileLimits {
     /// `false` = legacy single-shared-profile mode (all agents
     /// share `user_data_dir`).
     pub multi_profile_enabled: bool,
+    /// Follow-up `browser.0.4.0.deprecate-legacy-per-agent`.
+    /// `false` ⇒ refuse to spin up legacy per-agent profiles in
+    /// dispatch case 3. Default `true` (legacy path active) in
+    /// 0.3.x; 0.4.0 will flip the default.
+    pub legacy_per_agent_enabled: bool,
 }
 
 impl Default for ProfileLimits {
@@ -51,6 +66,7 @@ impl Default for ProfileLimits {
             max_profiles: DEFAULT_MAX_PROFILES,
             idle_secs: DEFAULT_IDLE_SECS,
             multi_profile_enabled: true,
+            legacy_per_agent_enabled: true,
         }
     }
 }
@@ -59,10 +75,38 @@ impl Default for ProfileLimits {
 /// clamped + warn-logged. Unparseable values fall back to the
 /// default + warn.
 pub fn read_profile_limits() -> ProfileLimits {
+    let legacy = read_legacy_per_agent();
+    if legacy {
+        tracing::info!(
+            target: "plugin.browser",
+            env = ENV_LEGACY_PER_AGENT,
+            note = "deprecation: legacy per-agent profile fan-out will be opt-in in 0.4.0; declare instances in browser.yaml or set NEXO_PLUGIN_BROWSER_LEGACY_PER_AGENT=0 to refuse implicit fallback",
+            "legacy-per-agent path active"
+        );
+    }
     ProfileLimits {
         max_profiles: read_max_profiles(),
         idle_secs: read_idle_secs(),
         multi_profile_enabled: read_multi_profile(),
+        legacy_per_agent_enabled: legacy,
+    }
+}
+
+fn read_legacy_per_agent() -> bool {
+    let Some(raw) = std::env::var(ENV_LEGACY_PER_AGENT).ok() else {
+        return true; // default in 0.3.x
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "0" | "false" | "no" | "off" => false,
+        "1" | "true" | "yes" | "on" => true,
+        _ => {
+            tracing::warn!(
+                env = ENV_LEGACY_PER_AGENT,
+                value = %raw,
+                "unparseable; defaulting to enabled"
+            );
+            true
+        }
     }
 }
 

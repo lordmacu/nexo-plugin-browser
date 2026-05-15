@@ -35,6 +35,20 @@ pub fn resolve_plugin_or_legacy(
     agent_id: &str,
     legacy: Arc<BrowserPlugin>,
 ) -> Result<Arc<BrowserPlugin>, ToolInvocationError> {
+    resolve_plugin_or_legacy_gated(args, agent_id, legacy, true)
+}
+
+/// Variant of [`resolve_plugin_or_legacy`] that lets the caller
+/// opt out of the legacy per-`agent_id` fallback (dispatch case 3).
+/// Wired from `main.rs::on_tool` via
+/// [`ProfileLimits::legacy_per_agent_enabled`]. The 0.4.0 plan is
+/// to flip the env default so this off-path becomes the norm.
+pub fn resolve_plugin_or_legacy_gated(
+    args: &Value,
+    agent_id: &str,
+    legacy: Arc<BrowserPlugin>,
+    legacy_enabled: bool,
+) -> Result<Arc<BrowserPlugin>, ToolInvocationError> {
     let requested = args.get("instance").and_then(|v| v.as_str());
 
     if let Some(name) = requested {
@@ -50,7 +64,18 @@ pub fn resolve_plugin_or_legacy(
 
     let registered = instance_registry::entries();
     match registered.len() {
-        0 => Ok(legacy), // Case 3 — legacy per-agent_id fallback.
+        0 => {
+            // Case 3 — legacy per-agent_id fallback.
+            if !legacy_enabled {
+                return Err(ToolInvocationError::Unavailable(
+                    "no declared browser instances; configure browser.yaml \
+                     or set NEXO_PLUGIN_BROWSER_LEGACY_PER_AGENT=1 to allow \
+                     implicit per-agent fallback"
+                        .into(),
+                ));
+            }
+            Ok(legacy)
+        }
         1 => {
             // Case 2 — implicit single declared instance.
             let (_, plugin) = registered.into_iter().next().unwrap();

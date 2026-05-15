@@ -19,6 +19,7 @@
 //! `dispatch.rs` translates every `tool.invoke` into a
 //! `BrowserCmd` and calls `execute`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -42,6 +43,12 @@ struct BrowserInner {
     config: BrowserConfig,
     session: Mutex<Option<CdpSession>>,
     chrome: Mutex<Option<RunningChrome>>,
+    /// Follow-up `browser.launch_visible.runtime`. When `true`,
+    /// the next lazy-boot flips `headless = false` regardless of
+    /// the configured value, then clears the flag. Set by the
+    /// admin RPC `launch_visible` after it shuts the current
+    /// Chrome down.
+    headless_override_off: AtomicBool,
 }
 
 impl BrowserPlugin {
@@ -51,8 +58,25 @@ impl BrowserPlugin {
                 config,
                 session: Mutex::new(None),
                 chrome: Mutex::new(None),
+                headless_override_off: AtomicBool::new(false),
             }),
         }
+    }
+
+    /// Follow-up `browser.launch_visible.runtime` — request the
+    /// next lazy-boot to spawn a non-headless Chrome regardless
+    /// of the configured `headless` flag. One-shot: the flag
+    /// resets to `false` after the override fires.
+    pub fn request_visible_next_boot(&self) {
+        self.inner.headless_override_off.store(true, Ordering::SeqCst);
+    }
+
+    fn instance_label_for_metrics(&self) -> String {
+        self.inner
+            .config
+            .instance
+            .clone()
+            .unwrap_or_else(|| "default".into())
     }
 
     /// Borrow this instance's `allow_agents` slice for routing
@@ -161,24 +185,45 @@ impl BrowserPlugin {
         drop(session);
         let mut chrome = self.inner.chrome.lock().await;
         *chrome = None;
+        crate::metrics::set_chrome_alive(&self.instance_label_for_metrics(), false);
     }
 }
 
 impl BrowserInner {
+    fn instance_label(&self) -> String {
+        self.config
+            .instance
+            .clone()
+            .unwrap_or_else(|| "default".into())
+    }
+
     async fn ensure_session(self: &Arc<Self>) -> anyhow::Result<()> {
         let mut session_lock = self.session.lock().await;
         if session_lock.is_some() {
             return Ok(());
         }
 
-        let ws_url = if self.config.cdp_url.is_empty() {
-            let chrome = ChromeLauncher::launch(&self.config).await?;
+        // Follow-up `browser.launch_visible.runtime` — consume the
+        // one-shot override here so the next boot honours it then
+        // the flag resets.
+        let mut cfg_for_launch = self.config.clone();
+        if self
+            .headless_override_off
+            .swap(false, Ordering::SeqCst)
+        {
+            cfg_for_launch.headless = false;
+        }
+        let ws_url = if cfg_for_launch.cdp_url.is_empty() {
+            let chrome = ChromeLauncher::launch(&cfg_for_launch).await?;
             let ws = chrome.ws_url.clone();
             *self.chrome.lock().await = Some(chrome);
             ws
         } else {
-            ChromeLauncher::connect_existing(&self.config.cdp_url, self.config.connect_timeout_ms)
-                .await?
+            ChromeLauncher::connect_existing(
+                &cfg_for_launch.cdp_url,
+                cfg_for_launch.connect_timeout_ms,
+            )
+            .await?
         };
 
         let client = Arc::new(CdpClient::connect(&ws_url).await?);
@@ -187,14 +232,22 @@ impl BrowserInner {
             tracing::warn!(error = %e, "Page.enable failed — navigation events may be missing");
         }
 
-        let target_id = get_first_target_id(&ws_url, self.config.connect_timeout_ms).await?;
+        let target_id =
+            get_first_target_id(&ws_url, cfg_for_launch.connect_timeout_ms).await?;
         let session = CdpSession::new(
             Arc::clone(&client),
             &target_id,
-            self.config.command_timeout_ms,
+            cfg_for_launch.command_timeout_ms,
         )
         .await?;
         *session_lock = Some(session);
+
+        // Follow-up `browser.per-instance-supervisor` — bump
+        // per-instance metrics on every (re-)boot so dashboards
+        // can plot Chrome lifecycle.
+        let label = self.instance_label();
+        crate::metrics::set_chrome_alive(&label, true);
+        crate::metrics::inc_chrome_restart(&label);
         Ok(())
     }
 }

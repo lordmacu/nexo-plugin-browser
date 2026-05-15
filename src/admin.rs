@@ -113,22 +113,28 @@ pub fn mark_paired(req: &Value) -> Value {
 
 /// `nexo/admin/browser/launch_visible` — request a non-headless
 /// Chrome boot for the instance so the operator can complete a
-/// manual pairing flow. Step 7 ships the wiring contract only —
-/// actual headless-override on lazy-boot lands as a deferred
-/// follow-up (`browser.launch_visible.runtime`). Until then this
-/// verb is a no-op acknowledgement.
-pub fn launch_visible(req: &Value) -> Value {
+/// manual pairing flow. Idempotent: shuts the current Chrome
+/// down (if any) so the next lazy-boot honours the one-shot
+/// `headless = false` override.
+///
+/// The actual Chrome (re-)boot is lazy: the next `tool.invoke`
+/// targeting this instance triggers `BrowserInner::ensure_session`
+/// which consumes the override and spawns Chrome with the visible
+/// flag.
+pub async fn launch_visible(req: &Value) -> Value {
     let instance = match arg_instance(req) {
         Ok(s) => s,
         Err(e) => return e,
     };
-    if instance_registry::lookup(&instance).is_none() {
+    let Some(plugin) = instance_registry::lookup(&instance) else {
         return err(format!("instance `{instance}` not declared"));
-    }
+    };
+    plugin.request_visible_next_boot();
+    plugin.shutdown_chrome().await;
     ok(json!({
         "instance": instance,
-        "launched": false,
-        "note": "stub — runtime headless-override is a deferred follow-up",
+        "launched": true,
+        "note": "Chrome will spawn visible on next tool.invoke targeting this instance",
     }))
 }
 
@@ -140,7 +146,7 @@ pub async fn dispatch(verb: &str, params: &Value) -> Value {
         "shutdown" => shutdown(params).await,
         "restart" => restart(params).await,
         "mark_paired" => mark_paired(params),
-        "launch_visible" => launch_visible(params),
+        "launch_visible" => launch_visible(params).await,
         other => err(format!("unknown admin verb: `{other}`")),
     }
 }
