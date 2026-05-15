@@ -88,7 +88,9 @@ pub async fn apply_configure(value: serde_yaml::Value) -> Result<(), String> {
             "registered declared instance"
         );
     }
+    let n = snapshot.len() as i64;
     *configured_state().write().await = Some(snapshot);
+    crate::metrics::set_instances_configured(n);
     Ok(())
 }
 

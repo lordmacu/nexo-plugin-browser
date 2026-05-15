@@ -230,7 +230,24 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
                 sanitize_id(agent_id).unwrap_or_else(|_| "default".into())
             };
             let dispatched_against_legacy = std::sync::Arc::ptr_eq(&plugin, &legacy);
+            let instance_label = if dispatched_against_legacy {
+                "legacy".to_string()
+            } else {
+                plugin
+                    .config_snapshot()
+                    .instance
+                    .clone()
+                    .unwrap_or_else(|| "default".into())
+            };
+            let tool_name_for_metrics = inv.tool_name.clone();
+            let start = Instant::now();
             let result = dispatch_browser_tool(plugin, &inv.tool_name, inv.args).await;
+            nexo_plugin_browser::metrics::record_invocation(
+                &instance_label,
+                &tool_name_for_metrics,
+                result.is_ok(),
+                start.elapsed().as_secs_f64(),
+            );
             if result.is_ok() && dispatched_against_legacy {
                 if let Some(entry) = PROFILES.get(&touch_key) {
                     *entry.value().last_active_at.lock().await = Instant::now();

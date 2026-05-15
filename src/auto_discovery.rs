@@ -91,12 +91,14 @@ pub async fn admin_handle(request: &Value) -> Value {
 
 // ── Stage 5 — Prometheus metrics scrape ────────────────────────
 
-/// Step 7 ships an empty/header-only scrape body. Step 9 fills it
-/// with the per-instance counters/histograms.
+/// Step 9 — encode the per-instance Prometheus registry.
 pub async fn metrics_scrape(_request: &Value) -> Value {
-    let body = "# HELP browser_plugin_ready Plugin process up.\n\
-                # TYPE browser_plugin_ready gauge\n\
-                browser_plugin_ready 1\n";
+    let mut body = String::from(
+        "# HELP browser_plugin_ready Plugin process up.\n\
+         # TYPE browser_plugin_ready gauge\n\
+         browser_plugin_ready 1\n",
+    );
+    body.push_str(&crate::metrics::scrape());
     json!({ "text": body })
 }
 

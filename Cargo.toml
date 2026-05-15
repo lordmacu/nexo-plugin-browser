@@ -75,6 +75,11 @@ nexo-config       = "0.1.4"
 # bundled manifest.
 toml = "0.8"
 
+# Step 9 of browser-multi-instance — per-instance metrics. Vanilla
+# `prometheus` (not `prometheus-client`) matches the daemon-side
+# stack so scrape bodies share encoding.
+prometheus = { version = "0.14", default-features = false }
+
 [dev-dependencies]
 libc        = "0.2"
 assert_cmd  = "2"
