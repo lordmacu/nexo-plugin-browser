@@ -15,6 +15,7 @@ pub mod config;
 pub mod configured_state;
 pub mod dispatch;
 pub mod env_config;
+pub mod instance_registry;
 pub mod plugin;
 pub mod profile;
 pub mod profile_decoration;
