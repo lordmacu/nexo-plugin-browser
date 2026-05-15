@@ -91,8 +91,20 @@ async fn shared_plugin_for(
     // 0.3.x deprecation window.
     let mut cfg = {
         let guard = nexo_plugin_browser::configured_state().read().await;
-        if let Some(c) = guard.as_ref() {
-            c.clone()
+        if let Some(vec) = guard.as_ref() {
+            // Step 4 of browser-multi-instance: cell now holds a
+            // `Vec<BrowserConfig>`. The legacy per-agent_id path
+            // here predates declared-instance routing (Step 5) and
+            // uses the first configured slice as its template. The
+            // dispatch resolver (Step 5) only falls into this code
+            // path when the instance registry is empty — i.e. when
+            // there's at most one effective configuration anyway.
+            if let Some(c) = vec.first() {
+                c.clone()
+            } else {
+                drop(guard);
+                browser_config_from_env()
+            }
         } else {
             drop(guard);
             browser_config_from_env()
@@ -193,10 +205,17 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
         // instance shape per manifest `[plugin.config_schema]
         // shape = "object"`.
         .on_configure(|value: serde_yaml::Value| async move {
-            let parsed: nexo_plugin_browser::BrowserConfig =
+            // Accept both the 0.2.x single-map shape and the 0.3.0
+            // array shape via the untagged `BrowserPluginShape`
+            // enum. Step 6 will rewrite this handler to populate
+            // the instance registry; for now we just normalise into
+            // the `Vec<BrowserConfig>` cell so the legacy reader
+            // above keeps working.
+            let shape: nexo_plugin_browser::BrowserPluginShape =
                 serde_yaml::from_value(value)
                     .map_err(|e| format!("invalid browser config: {e}"))?;
-            *nexo_plugin_browser::configured_state().write().await = Some(parsed);
+            *nexo_plugin_browser::configured_state().write().await =
+                Some(shape.into_vec());
             Ok(())
         })
         .on_tool(move |inv: ToolInvocation| async move {

@@ -36,14 +36,14 @@ async fn configure_unknown_field_errors() {
 #[serial]
 async fn configure_overwrites_on_hot_reload_recall() {
     let cfg_a = parse_yaml("user_data_dir: /tmp/a\n");
-    *configured_state().write().await = Some(cfg_a);
+    *configured_state().write().await = Some(vec![cfg_a]);
 
     let cfg_b = parse_yaml("user_data_dir: /tmp/b\n");
-    *configured_state().write().await = Some(cfg_b);
+    *configured_state().write().await = Some(vec![cfg_b]);
 
     let guard = configured_state().read().await;
     let current = guard.as_ref().expect("populated");
-    assert_eq!(current.user_data_dir, "/tmp/b");
+    assert_eq!(current.first().expect("non-empty").user_data_dir, "/tmp/b");
     drop(guard);
     *configured_state().write().await = None;
 }
@@ -60,12 +60,31 @@ async fn configure_args_array_preserved() {
 
 #[tokio::test]
 #[serial]
-async fn configured_state_holds_single_instance_not_vec() {
+async fn configured_state_holds_vec_of_instances() {
+    // Step 4 of browser-multi-instance: cell holds `Vec<BrowserConfig>`.
+    // Single-instance back-compat path writes a 1-element vec.
     let cfg = parse_yaml("headless: true\n");
-    *configured_state().write().await = Some(cfg);
+    *configured_state().write().await = Some(vec![cfg]);
     let guard = configured_state().read().await;
     let inner = guard.as_ref().expect("populated");
-    assert!(inner.headless);
+    assert_eq!(inner.len(), 1);
+    assert!(inner[0].headless);
+    drop(guard);
+    *configured_state().write().await = None;
+}
+
+#[tokio::test]
+#[serial]
+async fn configured_state_holds_multi_instance() {
+    let cfg_a = parse_yaml("instance: a\nheadless: true\n");
+    let cfg_b = parse_yaml("instance: b\nheadless: false\n");
+    *configured_state().write().await = Some(vec![cfg_a, cfg_b]);
+
+    let guard = configured_state().read().await;
+    let inner = guard.as_ref().expect("populated");
+    assert_eq!(inner.len(), 2);
+    assert_eq!(inner[0].instance.as_deref(), Some("a"));
+    assert_eq!(inner[1].instance.as_deref(), Some("b"));
     drop(guard);
     *configured_state().write().await = None;
 }
