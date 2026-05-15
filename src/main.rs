@@ -26,9 +26,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
+use nexo_broker::{AnyBroker, BrokerHandle, Event, Message, StdioBridgeBroker};
 use nexo_microapp_sdk::plugin::{PluginAdapter, ToolInvocation, ToolInvocationError};
 use once_cell::sync::Lazy;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 
 use nexo_plugin_browser::{
     browser_tool_defs,
@@ -41,6 +42,12 @@ use nexo_plugin_browser::{
 };
 
 const MANIFEST: &str = include_str!("../nexo-plugin.toml");
+
+/// Follow-up `browser.auto_discovery.subscriber` — populated in
+/// `main()` when the daemon stamps `NEXO_BROKER_KIND=stdio_bridge`.
+/// Mirrors the BRIDGE cell in telegram + whatsapp plugins; same
+/// role, same wiring.
+static BRIDGE: Lazy<OnceCell<Arc<StdioBridgeBroker>>> = Lazy::new(OnceCell::new);
 
 /// Per-agent profile entry — Arc-shared `BrowserPlugin` plus the
 /// timestamp the eviction loop inspects.
@@ -185,9 +192,138 @@ fn spawn_idle_eviction_loop(idle_secs: u64) {
     });
 }
 
+/// Construct the broker handle the auto-discovery subscriber loop
+/// reads from. `stdio_bridge` clones from [`BRIDGE`]; anything else
+/// (default + explicit `nats`) connects via `NEXO_BROKER_URL`.
+async fn auto_discovery_broker() -> anyhow::Result<AnyBroker> {
+    let kind = std::env::var("NEXO_BROKER_KIND").unwrap_or_else(|_| "nats".to_string());
+    if kind == "stdio_bridge" {
+        let bridge = BRIDGE
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("BRIDGE not initialized"))?;
+        return Ok(AnyBroker::stdio_bridge((**bridge).clone()));
+    }
+    let url = std::env::var("NEXO_BROKER_URL")
+        .map_err(|_| anyhow::anyhow!("NEXO_BROKER_URL not set"))?;
+    let inner = nexo_config::types::broker::BrokerInner {
+        kind: if url.starts_with("nats://") {
+            nexo_config::types::broker::BrokerKind::Nats
+        } else {
+            nexo_config::types::broker::BrokerKind::Local
+        },
+        url,
+        auth: nexo_config::types::broker::BrokerAuthConfig::default(),
+        persistence: nexo_config::types::broker::BrokerPersistenceConfig::default(),
+        limits: nexo_config::types::broker::BrokerLimitsConfig::default(),
+        fallback: nexo_config::types::broker::BrokerFallbackConfig::default(),
+    };
+    AnyBroker::from_config(&inner)
+        .await
+        .map_err(|e| anyhow::anyhow!("broker connect failed: {e}"))
+}
+
+/// Auto-discovery broker subscriber loop. Spawns one tokio task per
+/// request-reply topic family declared in `nexo-plugin.toml`. Each
+/// task subscribes, parses [`Message`] from the inbound payload,
+/// invokes the matching async handler in
+/// [`nexo_plugin_browser::auto_discovery`], and publishes the reply
+/// back to `msg.reply_to`. Failure isolation: each task owns its
+/// subscription loop; a panic in one does NOT take down the plugin
+/// process or sibling tasks.
+fn spawn_auto_discovery_subscribers(broker: AnyBroker) {
+    use nexo_plugin_browser::auto_discovery as ad;
+
+    spawn_one(
+        broker.clone(),
+        "plugin.browser.pairing.normalize_sender",
+        |_b, p| async move { ad::pairing_normalize_sender(&p) },
+    );
+    spawn_one(
+        broker.clone(),
+        "plugin.browser.pairing.send_reply",
+        |_b, p| async move { ad::pairing_send_reply(&p).await },
+    );
+    spawn_one(
+        broker.clone(),
+        "plugin.browser.pairing.send_qr_image",
+        |_b, p| async move { ad::pairing_send_qr_image(&p).await },
+    );
+    spawn_one(
+        broker.clone(),
+        "plugin.browser.http.request",
+        |_b, p| async move { ad::http_request(&p).await },
+    );
+    spawn_one(
+        broker.clone(),
+        "plugin.browser.metrics.scrape",
+        |_b, p| async move { ad::metrics_scrape(&p).await },
+    );
+    spawn_one(broker, "plugin.browser.admin.>", |_b, p| async move {
+        ad::admin_handle(&p).await
+    });
+}
+
+fn spawn_one<F, Fut>(broker: AnyBroker, topic: &'static str, handler: F)
+where
+    F: Fn(AnyBroker, serde_json::Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = serde_json::Value> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut sub = match broker.subscribe(topic).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    target = "browser.auto_discovery",
+                    topic,
+                    error = %e,
+                    "subscribe failed; topic will not receive requests"
+                );
+                return;
+            }
+        };
+        tracing::info!(target = "browser.auto_discovery", topic, "subscriber up");
+        while let Some(event) = sub.next().await {
+            let Ok(msg) = serde_json::from_value::<Message>(event.payload) else {
+                continue;
+            };
+            let Some(reply_to) = msg.reply_to.clone() else {
+                continue;
+            };
+            let reply_payload = handler(broker.clone(), msg.payload.clone()).await;
+            let reply_msg = Message::new(reply_to.clone(), reply_payload);
+            let reply_event = Event::new(
+                reply_to.clone(),
+                "browser",
+                match serde_json::to_value(&reply_msg) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                },
+            );
+            if let Err(e) = broker.publish(&reply_to, reply_event).await {
+                tracing::warn!(
+                    target = "browser.auto_discovery",
+                    topic,
+                    reply_to = %reply_to,
+                    error = %e,
+                    "failed to publish reply"
+                );
+            }
+        }
+        tracing::debug!(
+            target = "browser.auto_discovery",
+            topic,
+            "subscriber stream ended"
+        );
+    });
+}
+
 #[tokio::main]
 async fn main() -> nexo_microapp_sdk::Result<()> {
     nexo_microapp_sdk::init_logging_from_env("nexo-plugin-browser");
+    // rustls 0.23 requires an explicit process-wide CryptoProvider
+    // before `ClientConfig::builder()` can return successfully.
+    // Mirrors the proyecto daemon + telegram/whatsapp plugins.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let limits = read_profile_limits();
     tracing::info!(
         target: "plugin.browser",
@@ -198,7 +334,7 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
     );
     spawn_idle_eviction_loop(limits.idle_secs);
 
-    PluginAdapter::new(MANIFEST)?
+    let adapter = PluginAdapter::new(MANIFEST)?
         .declare_tools(browser_tool_defs())
         // Phase 93.4.e — receive the operator YAML slice via the
         // host's `plugin.configure` JSON-RPC (Phase 93.2). Single-
@@ -258,7 +394,42 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
                 }
             }
             result
-        })
-        .run_stdio()
-        .await
+        });
+
+    // Wire the bridge first if the daemon stamped
+    // `NEXO_BROKER_KIND=stdio_bridge` so the BRIDGE cell is
+    // populated before `auto_discovery_broker()` reads it.
+    let adapter = if std::env::var("NEXO_BROKER_KIND").as_deref() == Ok("stdio_bridge") {
+        let (adapter, bridge) = adapter.with_stdio_bridge_broker();
+        BRIDGE
+            .set(bridge.clone())
+            .map_err(|_| {
+                nexo_microapp_sdk::Error::Internal(
+                    "BRIDGE already initialized (this should not happen)".into(),
+                )
+            })?;
+        tracing::info!(
+            target = "nexo_plugin_browser",
+            "stdio_bridge broker wired (daemon broker = Local)"
+        );
+        adapter
+    } else {
+        adapter
+    };
+
+    // Follow-up `browser.auto_discovery.subscriber` — spawn the
+    // broker subscriber loop unconditionally so both `stdio_bridge`
+    // and `nats` modes serve daemon-published Stage 1/2/4/5
+    // requests. tool.invoke path stays unaffected if the broker is
+    // unreachable.
+    match auto_discovery_broker().await {
+        Ok(broker) => spawn_auto_discovery_subscribers(broker),
+        Err(e) => tracing::warn!(
+            target = "nexo_plugin_browser",
+            error = %e,
+            "auto-discovery broker unavailable; subscribers not spawned (tool.invoke path unaffected)"
+        ),
+    }
+
+    adapter.run_stdio().await
 }

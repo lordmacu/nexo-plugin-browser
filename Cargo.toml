@@ -67,9 +67,14 @@ which             = "7"
 # All four resolve from crates.io alone; no proyecto sibling
 # checkout required for an external operator's `cargo install`.
 nexo-microapp-sdk = { version = "0.1.15", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
-nexo-broker       = "0.1.2"
+nexo-broker       = { version = "0.1.4", path = "../proyecto/crates/broker" }
 nexo-cdp          = "0.1.0"
-nexo-config       = "0.1.4"
+nexo-config       = { version = "0.1.8", path = "../proyecto/crates/config" }
+
+# Follow-up `browser.auto_discovery.subscriber` — broker subscriber
+# loop wiring. rustls crypto provider install required for the NATS
+# TLS path (mirrors telegram + whatsapp plugins).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # toml: the copied plugin.rs uses `toml::from_str` to parse the
 # bundled manifest.
