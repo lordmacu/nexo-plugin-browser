@@ -80,6 +80,10 @@ libc        = "0.2"
 assert_cmd  = "2"
 serial_test = "3"
 tempfile    = "3"
+# Step 8 of browser-multi-instance — manifest parse coverage. Uses
+# the path dep against the in-tree daemon workspace so manifest
+# schema changes land lock-step with this plugin.
+nexo-plugin-manifest = { path = "../proyecto/crates/plugin-manifest" }
 
 [profile.release]
 opt-level = 3

@@ -1557,6 +1557,7 @@ dependencies = [
  "nexo-cdp",
  "nexo-config 0.1.4",
  "nexo-microapp-sdk",
+ "nexo-plugin-manifest",
  "once_cell",
  "reqwest",
  "serde",

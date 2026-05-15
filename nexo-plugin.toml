@@ -1,35 +1,55 @@
-# Phase 81.17.c — out-of-tree subprocess plugin manifest.
+# Out-of-tree subprocess plugin manifest.
 #
-# This file lives next to `nexo-plugin-browser` (the binary) so
-# the daemon's discovery walker (`plugins.discovery.search_paths`
-# entries point at this directory) finds both at once.
+# This file lives next to `nexo-plugin-browser` (the binary) so the
+# daemon's discovery walker finds both at once.
 #
 # Contract version: v1.10.0 (see proyecto/nexo-plugin-contract.md).
 # Wire-shape compat: `extends.tools` allowlist + `tools[]`
 # advertisement in the `initialize` reply (consumed by the host's
 # `Inner.declared_tools` decoder — Phase 81.29).
+#
+# 0.3.0 — multi-instance manifest. Step 8 of browser-multi-instance.
+# Breaking from 0.2.x:
+#   - `config_schema.shape = "object"` → `"array"`
+#   - new `[plugin.pairing]` + adapter / instructions / fields
+#   - new `[plugin.http]` + `[plugin.admin]` + `[plugin.metrics]`
+#   - new `[plugin.dashboard.layout]` + `[plugin.dashboard.auth_check]`
+#   - `[plugin.capabilities.broker]` allowlist expanded
+#   - `[plugin.supervisor] respawn = true`
 
 [plugin]
 id = "browser"
 version = "0.3.0"
 name = "Browser Automation"
-description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
+description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (multi-instance, out-of-tree subprocess)."
 min_nexo_version = ">=0.1.0"
 
 [plugin.requires]
 nexo_capabilities = ["broker"]
 
+[plugin.capabilities.broker]
+# Step 8: explicit subscribe allowlist. Daemon validates the plugin
+# can only listen on its declared topics — defense-in-depth so a
+# misbehaving plugin can't sniff unrelated traffic.
+subscribe = [
+    "plugin.outbound.browser",
+    "plugin.outbound.browser.>",
+    "plugin.browser.pairing.normalize_sender",
+    "plugin.browser.pairing.send_reply",
+    "plugin.browser.pairing.send_qr_image",
+    "plugin.browser.http.request",
+    "plugin.browser.admin.>",
+    "plugin.browser.metrics.scrape",
+]
+publish = [
+    "plugin.inbound.browser",
+    "plugin.inbound.browser.>",
+]
+
 [plugin.entrypoint]
-# Daemon resolves this relative to the manifest's containing dir
-# (the existing 81.17 behaviour). Operators who installed this
-# plugin elsewhere drop the binary next to this manifest.
 command = "./bin/browser"
 
 [plugin.extends]
-# 12 `browser_*` tool names — must match `src/tool_defs.rs`'s
-# advertised list. Daemon kills the subprocess at handshake if
-# any name in the initialize-reply tools[] is NOT in this list
-# (out-of-tree-binary defense).
 tools = [
     "browser_click",
     "browser_current_url",
@@ -46,10 +66,6 @@ tools = [
 ]
 
 [plugin.sandbox]
-# Phase 81.22 — bubblewrap-based v1. `enabled = true` requires
-# `bwrap` on PATH or NEXO_PLUGIN_SANDBOX_REQUIRE=0 to degrade.
-# Chromium needs user namespaces for its OWN sandbox, so
-# `drop_user = false` (don't unshare the user ns).
 enabled = true
 network = "host"
 fs_read_paths = [
@@ -58,29 +74,103 @@ fs_read_paths = [
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
 ]
-fs_write_paths = [
-    "${state_dir}",
-]
+# `${state_dir}` is the per-instance parent; the boot loop resolves
+# `${state_dir}/instances/<label>/` per declared instance so each
+# Chrome process gets a writable subdir of its own.
+fs_write_paths = ["${state_dir}"]
 drop_user = false
 
 [plugin.supervisor]
-# Crash detection + stderr tail capture (Phase 81.21 + 81.21.b).
-# Auto-respawn (`respawn = true`) waits for 81.21.b.b — for now
-# the operator restarts the daemon on browser crash.
-respawn = false
-max_attempts = 0
+# Phase 81.21.b.b auto-respawn — flipped on for 0.3.0 so a single
+# Chrome crash doesn't permanently take the plugin offline. One
+# subprocess still hosts all declared instances; per-instance
+# supervisor (where one Chrome crash doesn't reset the others) is
+# follow-up `browser.per-instance-supervisor`.
+respawn = true
+max_attempts = 5
 backoff_ms = 1000
 stderr_tail_lines = 64
 
-# Phase 93.4.e — declarative config contract. Single-instance
-# shape: `cfg.plugins.browser` is one map (not a sequence). Daemon
-# delivers via `plugin.configure` JSON-RPC (Phase 93.2); SDK
-# `on_configure` handler deserialises into `BrowserConfig`.
+# ── Phase 81.33.b.real Stage 1 — pairing adapter ─────────────────
+
+[plugin.pairing]
+# Browser pairing = "log into sites manually inside Chrome". Form
+# kind asks the operator for a session name; the dashboard surface
+# (Stage 6 below) then exposes a "launch visible Chrome" admin RPC
+# so the operator can complete login outside the LLM loop.
+kind = "form"
+label = "Browser"
+instance_field = "instance"
+
+[plugin.pairing.adapter]
+channel_id = "browser"
+broker_topic_prefix = "plugin.browser"
+
+[plugin.pairing.instructions]
+es = "Asigná un nombre a la sesión (ej. 'marketing'). Tras crearla, abrí Chrome desde el dashboard, logueate en los sitios necesarios y cerralo — la sesión queda lista."
+en = "Name the session (e.g. 'marketing'). After creating it, open Chrome from the dashboard, log into the sites you need, and close it — the session is then ready."
+
+[[plugin.pairing.fields]]
+name = "instance"
+label = "Session name"
+placeholder = "marketing"
+required = true
+
+[[plugin.pairing.fields]]
+name = "initial_url"
+label = "Initial URL (optional)"
+placeholder = "https://example.com/login"
+required = false
+
+# ── Phase 81.33.b.real Stage 2 — HTTP routes ─────────────────────
+
+[plugin.http]
+# Daemon mounts a generic proxy under `/browser/*`. Browser plugin
+# declares no real HTTP routes today — the auto-discovery handler
+# replies 501 (see `src/auto_discovery.rs::http_request`). Declared
+# anyway so daemon-side helpers know the mount-prefix is reserved.
+mount_prefix = "/browser"
+timeout_seconds = 30
+
+# ── Phase 81.33.b.real Stage 4 — admin RPC ───────────────────────
+
+[plugin.admin]
+method_prefix = "nexo/admin/browser/"
+broker_topic_prefix = "plugin.browser.admin"
+timeout_seconds = 15
+
+# ── Phase 81.33.b.real Stage 5 — Prometheus metrics ──────────────
+
+[plugin.metrics]
+prometheus = true
+broker_topic_prefix = "plugin.browser"
+timeout_seconds = 5
+
+# ── Phase 81.33.b.real Stage 6 — setup wizard dashboard ──────────
+
+[plugin.dashboard.layout]
+# Multi-instance per workspace agent: wizard walks
+# `<workspace>/<agent>/browser/<instance>/` and probes each instance
+# dir for auth state.
+kind = "workspace_walk"
+subdir = "browser"
+
+[plugin.dashboard.auth_check]
+kind = "session_dir_files"
+# `.nexo-paired` is the canonical operator-confirmed sentinel
+# (admin RPC `mark_paired` writes it). Chrome's own session files
+# are kept as fallbacks for operators who paired before the sentinel
+# convention existed.
+candidates = [".nexo-paired", "Default/Cookies", "Default/Login Data"]
+
+# ── Declarative config contract ──────────────────────────────────
+
 [plugin.config_schema]
-shape = "object"
+shape = "array"
 schema = '''{
   "type": "object",
   "properties": {
+    "instance":           { "type": "string" },
     "headless":           { "type": "boolean" },
     "executable":         { "type": "string" },
     "cdp_url":            { "type": "string" },
@@ -89,6 +179,10 @@ schema = '''{
     "window_height":      { "type": "integer" },
     "connect_timeout_ms": { "type": "integer" },
     "command_timeout_ms": { "type": "integer" },
-    "args":               { "type": "array" }
+    "args":               { "type": "array" },
+    "allow_agents":       { "type": "array" }
   }
 }'''
+
+[plugin.credentials_schema]
+enabled = false
