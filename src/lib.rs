@@ -27,7 +27,9 @@ pub use config::{BrowserConfig, BrowserConfigFile, BrowserPluginConfigFile, Brow
 pub use configured_state::configured_state;
 pub use nexo_cdp::{CdpClient, CdpSession};
 pub use plugin::BrowserPlugin;
+#[allow(deprecated)]
+pub use profile::sanitize_agent_id;
 pub use profile::{
-    profile_color_argb, sanitize_agent_id, user_data_dir_for, ProfileIdError,
+    profile_color_argb, sanitize_id, user_data_dir_for, IdError, ProfileIdError,
 };
 pub use tool_defs::browser_tool_defs;
