@@ -311,6 +311,7 @@ mod tests {
     /// test below doesn't need to deserialize a TOML/YAML stub.
     fn config_with_executable(exe: &str) -> BrowserConfig {
         BrowserConfig {
+            instance: None,
             headless: false,
             executable: exe.to_string(),
             cdp_url: String::new(),
@@ -320,6 +321,7 @@ mod tests {
             connect_timeout_ms: 10_000,
             command_timeout_ms: 15_000,
             args: Vec::new(),
+            allow_agents: Vec::new(),
         }
     }
 

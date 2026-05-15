@@ -216,6 +216,7 @@ mod tests {
 
     fn test_config() -> BrowserConfig {
         BrowserConfig {
+            instance: None,
             headless: true,
             executable: String::new(),
             cdp_url: String::new(),
@@ -225,6 +226,7 @@ mod tests {
             connect_timeout_ms: 8_000,
             command_timeout_ms: 30_000,
             args: Vec::new(),
+            allow_agents: Vec::new(),
         }
     }
 

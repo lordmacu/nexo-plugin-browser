@@ -23,7 +23,7 @@ pub mod tool_defs;
 
 pub use chrome::{ChromeLauncher, RunningChrome};
 pub use command::{BrowserCmd, BrowserResult};
-pub use config::{BrowserConfig, BrowserConfigFile};
+pub use config::{BrowserConfig, BrowserConfigFile, BrowserPluginConfigFile, BrowserPluginShape};
 pub use configured_state::configured_state;
 pub use nexo_cdp::{CdpClient, CdpSession};
 pub use plugin::BrowserPlugin;

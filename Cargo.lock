@@ -1520,9 +1520,10 @@ dependencies = [
 
 [[package]]
 name = "nexo-microapp-sdk"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "dashmap",
  "nexo-broker 0.1.4",
  "nexo-llm",
