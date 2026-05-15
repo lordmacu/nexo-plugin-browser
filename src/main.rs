@@ -32,9 +32,9 @@ use tokio::sync::Mutex;
 
 use nexo_plugin_browser::{
     browser_tool_defs,
-    dispatch::dispatch_browser_tool,
+    dispatch::{dispatch_browser_tool, resolve_plugin_or_legacy},
     env_config::browser_config_from_env,
-    profile::{sanitize_agent_id, user_data_dir_for},
+    profile::{sanitize_id, user_data_dir_for},
     profile_decoration::decorate_profile_dir,
     profile_limits::{read_profile_limits, ProfileLimits},
     BrowserPlugin,
@@ -71,7 +71,7 @@ async fn shared_plugin_for(
     let key = if !limits.multi_profile_enabled || agent_id.is_empty() {
         "default".to_string()
     } else {
-        sanitize_agent_id(agent_id)
+        sanitize_id(agent_id)
             .map_err(|e| ToolInvocationError::ArgumentInvalid(e.to_string()))?
     };
 
@@ -220,17 +220,29 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
         })
         .on_tool(move |inv: ToolInvocation| async move {
             let agent_id = inv.agent_id.as_deref().unwrap_or("");
-            let plugin = shared_plugin_for(agent_id, limits).await?;
-            // Re-key for the touch lookup using the same logic
-            // as shared_plugin_for. Doing it inline keeps the
-            // touch a single map lookup.
+            // Resolve the legacy per-agent_id plugin eagerly so it's
+            // available as the Case-3 fallback in
+            // `resolve_plugin_or_legacy`. When the instance registry
+            // is populated (declared instances), the legacy plugin
+            // is shadowed by the resolver — Chrome stays unbooted
+            // for that agent until a tool actually targets it via
+            // case 3, since `BrowserPlugin::new` is IO-free.
+            let legacy = shared_plugin_for(agent_id, limits).await?;
+            let plugin =
+                resolve_plugin_or_legacy(&inv.args, agent_id, legacy.clone())?;
+            // Re-key the legacy touch lookup using the same logic
+            // as shared_plugin_for. Only valid when we actually
+            // dispatched against `legacy` — when a declared instance
+            // wins, the legacy entry's `last_active_at` shouldn't
+            // be bumped (it'd defeat the idle-evict loop's intent).
             let touch_key = if !limits.multi_profile_enabled || agent_id.is_empty() {
                 "default".to_string()
             } else {
-                sanitize_agent_id(agent_id).unwrap_or_else(|_| "default".into())
+                sanitize_id(agent_id).unwrap_or_else(|_| "default".into())
             };
+            let dispatched_against_legacy = std::sync::Arc::ptr_eq(&plugin, &legacy);
             let result = dispatch_browser_tool(plugin, &inv.tool_name, inv.args).await;
-            if result.is_ok() {
+            if result.is_ok() && dispatched_against_legacy {
                 if let Some(entry) = PROFILES.get(&touch_key) {
                     *entry.value().last_active_at.lock().await = Instant::now();
                 }

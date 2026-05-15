@@ -93,7 +93,7 @@ pub fn sanitize_agent_id(raw: &str) -> Result<String, ProfileIdError> {
 /// assert the invariant.
 pub fn user_data_dir_for(base: &Path, agent_id: &str) -> PathBuf {
     debug_assert!(
-        sanitize_agent_id(agent_id).is_ok(),
+        sanitize_id(agent_id).is_ok(),
         "user_data_dir_for called with un-sanitised agent_id `{agent_id}`"
     );
     base.join("profiles").join(agent_id)

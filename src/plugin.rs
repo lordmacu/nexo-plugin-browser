@@ -55,6 +55,24 @@ impl BrowserPlugin {
         }
     }
 
+    /// Borrow this instance's `allow_agents` slice for routing
+    /// gates. Empty ⇒ accept any caller (back-compat).
+    pub fn allow_agents(&self) -> &[String] {
+        &self.inner.config.allow_agents
+    }
+
+    /// Borrow this instance's resolved `user_data_dir` — used by
+    /// admin RPC `mark_paired` (Step 7) to locate the sentinel file.
+    pub fn user_data_dir(&self) -> &str {
+        &self.inner.config.user_data_dir
+    }
+
+    /// Borrow the instance's owned config snapshot. Useful for the
+    /// admin RPC `list_instances` reply.
+    pub fn config_snapshot(&self) -> &BrowserConfig {
+        &self.inner.config
+    }
+
     /// Execute one CDP command. Reuses the existing
     /// session-or-launch flow; lazy-boots Chrome on the first
     /// call. Per-command timeout from
