@@ -3,6 +3,44 @@
 All notable changes to `nexo-plugin-browser` are documented here.
 The project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.3.0] — 2026-05-15
+
+### Breaking
+
+- Plugin owns `BrowserConfig` + `BrowserConfigFile` locally in
+  `nexo_plugin_browser::config`. `nexo_config::BrowserConfig`
+  no longer imported.
+- `nexo-microapp-sdk` pin lifted from crates.io 0.1.2 to the
+  proyecto path-dep so the new `PluginAdapter::on_configure`
+  hook (proyecto Phase 93.4.a-sdk, commit 8d32754b) is
+  available.
+
+### Added
+
+- Manifest declares `[plugin.config_schema]` (Phase 93.1) with
+  `shape = "object"` (single-instance plugin). JSON Schema
+  covers every operator-visible knob (headless / executable /
+  cdp_url / user_data_dir / window_width / window_height /
+  connect_timeout_ms / command_timeout_ms / args).
+- SDK `on_configure(...)` handler (proyecto Phase 93.4.a-sdk)
+  receives operator YAML via `plugin.configure` JSON-RPC
+  (proyecto Phase 93.2); caches `BrowserConfig` via the new
+  `configured_state()` accessor.
+- `shared_plugin_for()` prefers configured state; falls back to
+  legacy `browser_config_from_env()` env-var path during the
+  0.3.x deprecation window.
+- 5 new integration tests in `tests/configure_path.rs`.
+- `[lints.clippy]` allow-list section mirroring proyecto
+  workspace (`absurd_extreme_comparisons` + 7 others) so clippy
+  --all-targets gates pass.
+
+### Backward compatibility
+
+- Env-var fallback (`NEXO_PLUGIN_BROWSER_*` vars) keeps working
+  when daemon doesn't deliver `plugin.configure`. Removed in 0.4.0
+  once proyecto Phase 93.5 closes the daemon-side typed-fields
+  deprecation window.
+
 ## [Unreleased]
 
 ### Added

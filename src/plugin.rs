@@ -26,7 +26,7 @@ use base64::Engine;
 use tokio::sync::Mutex;
 
 use nexo_cdp::{CdpClient, CdpSession};
-use nexo_config::BrowserConfig;
+use crate::config::BrowserConfig;
 
 use crate::chrome::{ChromeLauncher, RunningChrome};
 use crate::command::{BrowserCmd, BrowserResult};

@@ -11,6 +11,8 @@
 pub use nexo_cdp as cdp;
 pub mod chrome;
 pub mod command;
+pub mod config;
+pub mod configured_state;
 pub mod dispatch;
 pub mod env_config;
 pub mod plugin;
@@ -21,6 +23,8 @@ pub mod tool_defs;
 
 pub use chrome::{ChromeLauncher, RunningChrome};
 pub use command::{BrowserCmd, BrowserResult};
+pub use config::{BrowserConfig, BrowserConfigFile};
+pub use configured_state::configured_state;
 pub use nexo_cdp::{CdpClient, CdpSession};
 pub use plugin::BrowserPlugin;
 pub use profile::{

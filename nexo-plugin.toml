@@ -11,7 +11,7 @@
 
 [plugin]
 id = "browser"
-version = "0.2.4"
+version = "0.3.0"
 name = "Browser Automation"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
 min_nexo_version = ">=0.1.0"
@@ -71,3 +71,24 @@ respawn = false
 max_attempts = 0
 backoff_ms = 1000
 stderr_tail_lines = 64
+
+# Phase 93.4.e — declarative config contract. Single-instance
+# shape: `cfg.plugins.browser` is one map (not a sequence). Daemon
+# delivers via `plugin.configure` JSON-RPC (Phase 93.2); SDK
+# `on_configure` handler deserialises into `BrowserConfig`.
+[plugin.config_schema]
+shape = "object"
+schema = '''{
+  "type": "object",
+  "properties": {
+    "headless":           { "type": "boolean" },
+    "executable":         { "type": "string" },
+    "cdp_url":            { "type": "string" },
+    "user_data_dir":      { "type": "string" },
+    "window_width":       { "type": "integer" },
+    "window_height":      { "type": "integer" },
+    "connect_timeout_ms": { "type": "integer" },
+    "command_timeout_ms": { "type": "integer" },
+    "args":               { "type": "array" }
+  }
+}'''

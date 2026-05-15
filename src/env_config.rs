@@ -7,7 +7,7 @@
 //! Defaults match the YAML loader's `#[serde(default)]` values so
 //! a missing env var behaves the same as an absent YAML key.
 
-use nexo_config::BrowserConfig;
+use crate::config::BrowserConfig;
 
 /// Read the browser config from `NEXO_PLUGIN_BROWSER_*` env vars.
 /// Missing vars fall back to the same defaults the YAML loader

@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
-use nexo_config::BrowserConfig;
+use crate::config::BrowserConfig;
 
 // Discovery logic lives in its own module so the per-platform
 // candidate lists can grow and be tested independently.
