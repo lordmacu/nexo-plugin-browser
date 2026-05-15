@@ -205,18 +205,7 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
         // instance shape per manifest `[plugin.config_schema]
         // shape = "object"`.
         .on_configure(|value: serde_yaml::Value| async move {
-            // Accept both the 0.2.x single-map shape and the 0.3.0
-            // array shape via the untagged `BrowserPluginShape`
-            // enum. Step 6 will rewrite this handler to populate
-            // the instance registry; for now we just normalise into
-            // the `Vec<BrowserConfig>` cell so the legacy reader
-            // above keeps working.
-            let shape: nexo_plugin_browser::BrowserPluginShape =
-                serde_yaml::from_value(value)
-                    .map_err(|e| format!("invalid browser config: {e}"))?;
-            *nexo_plugin_browser::configured_state().write().await =
-                Some(shape.into_vec());
-            Ok(())
+            nexo_plugin_browser::boot::apply_configure(value).await
         })
         .on_tool(move |inv: ToolInvocation| async move {
             let agent_id = inv.agent_id.as_deref().unwrap_or("");
