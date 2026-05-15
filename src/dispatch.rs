@@ -13,7 +13,97 @@ use nexo_microapp_sdk::plugin::ToolInvocationError;
 use serde_json::{json, Value};
 
 use crate::command::{BrowserCmd, BrowserResult};
+use crate::instance_registry;
 use crate::plugin::BrowserPlugin;
+
+/// Resolve the `BrowserPlugin` that should service this `tool.invoke`
+/// call. Four cases:
+///
+/// 1. Explicit `instance` arg → look up in [`instance_registry`].
+///    Unknown label ⇒ `ArgumentInvalid`.
+/// 2. No arg + exactly 1 instance declared → use it (compat shim).
+/// 3. No arg + 0 instances declared → fall back to `legacy` (the
+///    per-`agent_id` plugin from `main.rs::shared_plugin_for`).
+/// 4. No arg + N > 1 instances declared → `ArgumentInvalid`
+///    (ambiguous — caller must name an instance).
+///
+/// The instance arg is **not** stripped from `args` here; tool
+/// handlers ignore unknown keys, so leaving it in keeps this fn
+/// non-mutating.
+pub fn resolve_plugin_or_legacy(
+    args: &Value,
+    agent_id: &str,
+    legacy: Arc<BrowserPlugin>,
+) -> Result<Arc<BrowserPlugin>, ToolInvocationError> {
+    resolve_plugin_or_legacy_gated(args, agent_id, legacy, true)
+}
+
+/// Variant of [`resolve_plugin_or_legacy`] that lets the caller
+/// opt out of the legacy per-`agent_id` fallback (dispatch case 3).
+/// Wired from `main.rs::on_tool` via
+/// [`ProfileLimits::legacy_per_agent_enabled`]. The 0.4.0 plan is
+/// to flip the env default so this off-path becomes the norm.
+pub fn resolve_plugin_or_legacy_gated(
+    args: &Value,
+    agent_id: &str,
+    legacy: Arc<BrowserPlugin>,
+    legacy_enabled: bool,
+) -> Result<Arc<BrowserPlugin>, ToolInvocationError> {
+    let requested = args.get("instance").and_then(|v| v.as_str());
+
+    if let Some(name) = requested {
+        // Case 1 — explicit instance.
+        let plugin = instance_registry::lookup(name).ok_or_else(|| {
+            ToolInvocationError::ArgumentInvalid(format!(
+                "browser instance `{name}` not declared in config"
+            ))
+        })?;
+        gate_allow_agents(&plugin, agent_id)?;
+        return Ok(plugin);
+    }
+
+    let registered = instance_registry::entries();
+    match registered.len() {
+        0 => {
+            // Case 3 — legacy per-agent_id fallback.
+            if !legacy_enabled {
+                return Err(ToolInvocationError::Unavailable(
+                    "no declared browser instances; configure browser.yaml \
+                     or set NEXO_PLUGIN_BROWSER_LEGACY_PER_AGENT=1 to allow \
+                     implicit per-agent fallback"
+                        .into(),
+                ));
+            }
+            Ok(legacy)
+        }
+        1 => {
+            // Case 2 — implicit single declared instance.
+            let (_, plugin) = registered.into_iter().next().unwrap();
+            gate_allow_agents(&plugin, agent_id)?;
+            Ok(plugin)
+        }
+        _ => Err(ToolInvocationError::ArgumentInvalid(
+            "browser plugin has multiple instances declared; pass `instance` arg"
+                .into(),
+        )),
+    }
+}
+
+fn gate_allow_agents(
+    plugin: &Arc<BrowserPlugin>,
+    agent_id: &str,
+) -> Result<(), ToolInvocationError> {
+    let allow = plugin.allow_agents();
+    if allow.is_empty() {
+        return Ok(());
+    }
+    if agent_id.is_empty() || !allow.iter().any(|a| a == agent_id) {
+        return Err(ToolInvocationError::ArgumentInvalid(format!(
+            "agent `{agent_id}` not in allow_agents for this browser instance"
+        )));
+    }
+    Ok(())
+}
 
 /// Convert a [`BrowserResult`] into the JSON value that lands in
 /// a `tool.invoke` reply's `result` field.

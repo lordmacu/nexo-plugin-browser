@@ -5,41 +5,128 @@ The project adheres to [Semantic Versioning](https://semver.org).
 
 ## [0.3.0] — 2026-05-15
 
+Multi-instance release. Operators can declare N browser sessions
+in their YAML, each with its own Chrome process + isolated
+`user_data_dir`. Existing single-map YAML keeps working via
+back-compat shim.
+
 ### Breaking
 
+- **Multi-instance config shape.** `[plugin.config_schema]
+  shape: "object"` → `"array"`. Operator YAML's `browser:` key
+  now accepts either a single map (0.2.x back-compat, normalised
+  to a 1-element vec) or a sequence of maps (declared instances).
+  `BrowserConfig` gains `instance: Option<String>` + `allow_agents:
+  Vec<String>`. `configured_state` cell stores
+  `Option<Vec<BrowserConfig>>` instead of `Option<BrowserConfig>`.
+- **Tool dispatch routing.** Every `browser_*` tool gains an
+  optional `instance: string` arg. Resolution matrix:
+    1. explicit instance → looked up in registry; unknown ⇒
+       `ArgumentInvalid`.
+    2. implicit + 1 declared → uses it (compat shim).
+    3. implicit + 0 declared → legacy per-agent_id fallback
+       (Phase 81.17.c.multi-profile).
+    4. implicit + N > 1 declared → `ArgumentInvalid("multiple
+       instances declared")`.
+  Plus a per-instance `allow_agents` gate: empty list = accept
+  any agent; non-empty list rejects callers outside the list.
+- **Supervisor auto-respawn enabled** (`respawn = false` →
+  `true`, `max_attempts = 0` → `5`). A single Chrome crash no
+  longer leaves the plugin offline.
+- **Sanitiser rename.** `sanitize_agent_id` →
+  `sanitize_id`. `sanitize_agent_id` retained as a
+  `#[deprecated]` alias; `IdError` is the canonical name for
+  the error enum (`ProfileIdError` kept as alias).
 - Plugin owns `BrowserConfig` + `BrowserConfigFile` locally in
   `nexo_plugin_browser::config`. `nexo_config::BrowserConfig`
-  no longer imported.
-- `nexo-microapp-sdk` pin lifted from crates.io 0.1.2 to the
-  proyecto path-dep so the new `PluginAdapter::on_configure`
-  hook (proyecto Phase 93.4.a-sdk, commit 8d32754b) is
-  available.
+  no longer imported. (Inherited from Phase 93.4.e.)
 
 ### Added
 
-- Manifest declares `[plugin.config_schema]` (Phase 93.1) with
-  `shape = "object"` (single-instance plugin). JSON Schema
-  covers every operator-visible knob (headless / executable /
-  cdp_url / user_data_dir / window_width / window_height /
-  connect_timeout_ms / command_timeout_ms / args).
-- SDK `on_configure(...)` handler (proyecto Phase 93.4.a-sdk)
-  receives operator YAML via `plugin.configure` JSON-RPC
-  (proyecto Phase 93.2); caches `BrowserConfig` via the new
-  `configured_state()` accessor.
-- `shared_plugin_for()` prefers configured state; falls back to
-  legacy `browser_config_from_env()` env-var path during the
-  0.3.x deprecation window.
-- 5 new integration tests in `tests/configure_path.rs`.
-- `[lints.clippy]` allow-list section mirroring proyecto
-  workspace (`absurd_extreme_comparisons` + 7 others) so clippy
-  --all-targets gates pass.
+- **`instance_registry`** — `OnceLock<Arc<DashMap<String,
+  Arc<BrowserPlugin>>>>` mirroring telegram/whatsapp plugins.
+  `boot::apply_configure` populates it from operator YAML +
+  diffs vs prior state so hot-reload unregisters + shuts down
+  removed labels.
+- **Manifest auto-discovery sections** (Phase 81.33.b.real
+  Stages 1+2+4+5+6):
+    - `[plugin.capabilities.broker]` subscribe allowlist for 6
+      auto-discovery topics under `plugin.browser.*`.
+    - `[plugin.pairing] kind = "form"` with `instance` (required)
+      + `initial_url` (optional) fields + bilingual instructions.
+    - `[plugin.pairing.adapter]` for Stage 1 broker dispatch.
+    - `[plugin.http] mount_prefix = "/browser"` (501 today —
+      contract reserved).
+    - `[plugin.admin] method_prefix = "nexo/admin/browser/"`.
+    - `[plugin.metrics] prometheus = true`.
+    - `[plugin.dashboard.layout] workspace_walk subdir =
+      "browser"` + `auth_check session_dir_files` led by the
+      operator-confirmed `.nexo-paired` sentinel.
+- **Admin RPC handlers** (`src/admin.rs`): `list_instances`,
+  `shutdown`, `restart`, `mark_paired`, `launch_visible` (stub —
+  runtime headless-override is a deferred follow-up).
+- **`auto_discovery` handlers** (`src/auto_discovery.rs`):
+  pairing/http/admin/metrics broker-dispatch entry points. (The
+  broker subscriber loop pumping requests through these is a
+  deferred follow-up; manifest declarations let daemon-side
+  helpers route correctly today.)
+- **Per-instance Prometheus metrics** (`src/metrics.rs`):
+  `browser_tool_invocations_total{instance, tool, ok}`,
+  `browser_tool_latency_seconds{instance, tool}`,
+  `browser_chrome_alive{instance}`,
+  `browser_chrome_restarts_total{instance}`,
+  `browser_instances_configured`.
+- **Manifest declares `[plugin.config_schema]`** (Phase 93.1)
+  with the array shape's JSON Schema. SDK `on_configure(...)`
+  handler (Phase 93.4.a-sdk) receives operator YAML via
+  `plugin.configure` JSON-RPC.
+
+### Tests
+
+- `tests/config_migration.rs` (7) — BrowserPluginShape parsing.
+- `tests/dispatch_routing.rs` (8) — 4-case routing matrix +
+  allow_agents gate.
+- `tests/configure_boot.rs` (8) — boot loop populates registry,
+  diff-aware reload, dup-label rejection.
+- `tests/manifest_parse.rs` (8) — Stages 1-6 + version + broker
+  allowlist.
+- `tests/e2e_multi_instance.rs` (3) — JSON-RPC wire-level
+  multi-instance dispatch.
+- `tests/e2e_multi_instance_isolation.rs` (1, gated
+  `CHROMIUM_BIN`) — Chrome cookie isolation between instances.
+- Inline: `instance_registry::tests` (7),
+  `auto_discovery::tests` (13), `metrics::tests` (5).
+- 130/130 nextest green, 2 ignored (both gated on `CHROMIUM_BIN`).
 
 ### Backward compatibility
 
+- Operator YAML `browser: { headless: true, ... }` (bare map)
+  keeps working — normalised to a 1-element vec with
+  `instance: None`, registry stays empty, legacy per-agent_id
+  fallback (Phase 81.17.c.multi-profile) handles dispatch.
+- `sanitize_agent_id` retained as deprecated alias.
 - Env-var fallback (`NEXO_PLUGIN_BROWSER_*` vars) keeps working
   when daemon doesn't deliver `plugin.configure`. Removed in 0.4.0
   once proyecto Phase 93.5 closes the daemon-side typed-fields
   deprecation window.
+
+### Deferred follow-ups
+
+- `browser.auto_discovery.subscriber` — wire the broker
+  subscription loop pumping requests through `auto_discovery::*`
+  handlers. Plugin currently has no broker handle (only
+  PluginAdapter). Daemon-side helpers route to the declared
+  topics today; plugin acks land once this follow-up ships.
+- `browser.launch_visible.runtime` — make admin
+  `launch_visible` actually override `headless = true` on the
+  next Chrome boot. Today the verb is a no-op acknowledgement.
+- `browser.per-instance-supervisor` — currently one subprocess
+  hosts all instances; a single Chrome crash + plugin-process
+  panic resets all of them. Per-instance supervisor (one Chrome
+  crash isolated from siblings) is future scope.
+- `browser.0.4.0.deprecate-legacy-per-agent` — flip
+  `NEXO_PLUGIN_BROWSER_LEGACY_PER_AGENT` default from `1` to
+  `0` once enough operators have migrated.
 
 ## [Unreleased]
 

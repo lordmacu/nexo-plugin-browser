@@ -6,9 +6,36 @@
 //! count matches.
 
 use nexo_microapp_sdk::plugin::ToolDef;
-use serde_json::json;
+use serde_json::{json, Value};
 
 pub fn browser_tool_defs() -> Vec<ToolDef> {
+    let mut defs = browser_tool_defs_raw();
+    // Step 5 of browser-multi-instance: every tool gains an optional
+    // `instance: string` arg so callers can target a declared
+    // instance. Injected uniformly here so the per-tool entries stay
+    // focused on their domain args.
+    for def in &mut defs {
+        inject_instance_property(&mut def.input_schema);
+    }
+    defs
+}
+
+fn inject_instance_property(schema: &mut Value) {
+    let props = schema
+        .as_object_mut()
+        .and_then(|s| s.entry("properties").or_insert_with(|| json!({})).as_object_mut());
+    if let Some(p) = props {
+        p.insert(
+            "instance".to_string(),
+            json!({
+                "type": "string",
+                "description": "Optional declared instance label (operator YAML `browser[].instance`). Required only when more than one instance is configured."
+            }),
+        );
+    }
+}
+
+fn browser_tool_defs_raw() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "browser_click".into(),

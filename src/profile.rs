@@ -29,6 +29,12 @@ const MAX_AGENT_ID_LEN: usize = 64;
 /// Errors returned by [`sanitize_agent_id`]. Wrapped through the
 /// caller into `ToolInvocationError::ArgumentInvalid` (see
 /// `src/main.rs::shared_plugin_for`).
+/// Canonical alias for [`ProfileIdError`]. Step 2 of the
+/// browser-multi-instance migration introduces the
+/// instance-namespace-aware name; both refer to the same enum so
+/// existing 0.2.x callers compile unchanged.
+pub type IdError = ProfileIdError;
+
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ProfileIdError {
     /// `agent_id` was empty or whitespace-only after trimming.
@@ -52,7 +58,7 @@ pub enum ProfileIdError {
 ///   * empty / whitespace-only → [`ProfileIdError::Empty`].
 ///   * length > 64 → [`ProfileIdError::TooLong`].
 ///   * any char outside `[A-Za-z0-9_-]` → [`ProfileIdError::Invalid`].
-pub fn sanitize_agent_id(raw: &str) -> Result<String, ProfileIdError> {
+pub fn sanitize_id(raw: &str) -> Result<String, IdError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(ProfileIdError::Empty);
@@ -68,6 +74,12 @@ pub fn sanitize_agent_id(raw: &str) -> Result<String, ProfileIdError> {
     Ok(trimmed.to_ascii_lowercase())
 }
 
+/// Deprecated alias of [`sanitize_id`]. Kept for 0.2.x callers.
+#[deprecated(since = "0.3.0", note = "use sanitize_id (namespace-neutral name)")]
+pub fn sanitize_agent_id(raw: &str) -> Result<String, ProfileIdError> {
+    sanitize_id(raw)
+}
+
 /// Compose the per-agent Chrome `user_data_dir`:
 /// `${base}/profiles/<agent_id>/`.
 ///
@@ -81,7 +93,7 @@ pub fn sanitize_agent_id(raw: &str) -> Result<String, ProfileIdError> {
 /// assert the invariant.
 pub fn user_data_dir_for(base: &Path, agent_id: &str) -> PathBuf {
     debug_assert!(
-        sanitize_agent_id(agent_id).is_ok(),
+        sanitize_id(agent_id).is_ok(),
         "user_data_dir_for called with un-sanitised agent_id `{agent_id}`"
     );
     base.join("profiles").join(agent_id)
@@ -103,8 +115,18 @@ pub fn profile_color_argb(agent_id: &str) -> i32 {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // existing tests call the 0.2.x alias; 1 new test below targets `sanitize_id`.
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanitize_id_is_canonical_entry_point() {
+        // Canonical 0.3.0 name. Behaviour-identical to the
+        // deprecated `sanitize_agent_id` alias; this test pins
+        // the public name so callers can migrate.
+        assert_eq!(sanitize_id("Ana").unwrap(), "ana");
+        assert_eq!(sanitize_id("").unwrap_err(), ProfileIdError::Empty);
+    }
 
     // ── sanitize_agent_id ────────────────────────────────────
 

@@ -14,6 +14,7 @@ use crate::config::BrowserConfig;
 /// applies via `#[serde(default)]`.
 pub fn browser_config_from_env() -> BrowserConfig {
     BrowserConfig {
+        instance: None,
         headless: parse_bool("NEXO_PLUGIN_BROWSER_HEADLESS").unwrap_or(false),
         executable: std::env::var("NEXO_PLUGIN_BROWSER_EXECUTABLE").unwrap_or_default(),
         cdp_url: std::env::var("NEXO_PLUGIN_BROWSER_CDP_URL").unwrap_or_default(),
@@ -26,6 +27,7 @@ pub fn browser_config_from_env() -> BrowserConfig {
         // Comma-separated list, semicolons also accepted. Empty
         // string => empty Vec.
         args: parse_args_csv("NEXO_PLUGIN_BROWSER_ARGS"),
+        allow_agents: Vec::new(),
     }
 }
 
