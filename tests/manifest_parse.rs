@@ -142,5 +142,5 @@ fn manifest_dashboard_workspace_walk_with_paired_sentinel() {
 #[test]
 fn manifest_version_is_zero_three_zero() {
     let m = parse();
-    assert_eq!(m.plugin.version.to_string(), "0.3.0");
+    assert_eq!(m.plugin.version.to_string(), "0.3.2");
 }
