@@ -86,7 +86,18 @@ async fn shared_plugin_for(
         )));
     }
 
-    let mut cfg = browser_config_from_env();
+    // Phase 93.4.e — prefer the configure-delivered cfg when
+    // populated; legacy env-var path stays as fallback during the
+    // 0.3.x deprecation window.
+    let mut cfg = {
+        let guard = nexo_plugin_browser::configured_state().read().await;
+        if let Some(c) = guard.as_ref() {
+            c.clone()
+        } else {
+            drop(guard);
+            browser_config_from_env()
+        }
+    };
     if limits.multi_profile_enabled && key != "default" {
         let base: PathBuf = cfg.user_data_dir.clone().into();
         let derived = user_data_dir_for(&base, &key);
@@ -177,6 +188,17 @@ async fn main() -> nexo_microapp_sdk::Result<()> {
 
     PluginAdapter::new(MANIFEST)?
         .declare_tools(browser_tool_defs())
+        // Phase 93.4.e — receive the operator YAML slice via the
+        // host's `plugin.configure` JSON-RPC (Phase 93.2). Single-
+        // instance shape per manifest `[plugin.config_schema]
+        // shape = "object"`.
+        .on_configure(|value: serde_yaml::Value| async move {
+            let parsed: nexo_plugin_browser::BrowserConfig =
+                serde_yaml::from_value(value)
+                    .map_err(|e| format!("invalid browser config: {e}"))?;
+            *nexo_plugin_browser::configured_state().write().await = Some(parsed);
+            Ok(())
+        })
         .on_tool(move |inv: ToolInvocation| async move {
             let agent_id = inv.agent_id.as_deref().unwrap_or("");
             let plugin = shared_plugin_for(agent_id, limits).await?;

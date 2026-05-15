@@ -14,7 +14,7 @@
 # resolved versions for reproducibility.
 [package]
 name        = "nexo-plugin-browser"
-version     = "0.2.4"
+version     = "0.3.0"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
 edition     = "2021"
 license     = "MIT OR Apache-2.0"
@@ -41,6 +41,7 @@ harness = false
 tokio             = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
 serde             = { version = "1", features = ["derive"] }
 serde_json        = "1"
+serde_yaml        = "0.9"
 anyhow            = "1"
 thiserror         = "1"
 tracing           = "0.1"
@@ -65,7 +66,7 @@ which             = "7"
 # Slim dep set — only what the subprocess actually needs.
 # All four resolve from crates.io alone; no proyecto sibling
 # checkout required for an external operator's `cargo install`.
-nexo-microapp-sdk = { version = "0.1.2", features = ["plugin"] }
+nexo-microapp-sdk = { version = "0.1.15", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
 nexo-broker       = "0.1.2"
 nexo-cdp          = "0.1.0"
 nexo-config       = "0.1.4"
@@ -93,3 +94,17 @@ inherits      = "release"
 lto           = false
 codegen-units = 16
 strip         = "none"
+
+# Phase 93.4.e — mirror the proyecto workspace `[workspace.lints.clippy]`
+# allow-list so the verbatim-copied modules don't trip clippy gates
+# that the upstream workspace already silences.
+[lints.clippy]
+absurd_extreme_comparisons = "allow"
+needless_return            = "allow"
+needless_borrow            = "allow"
+needless_borrows_for_generic_args = "allow"
+ptr_arg                    = "allow"
+manual_pattern_char_comparison = "allow"
+incompatible_msrv          = "allow"
+doc_overindented_list_items = "allow"
+doc_lazy_continuation      = "allow"
