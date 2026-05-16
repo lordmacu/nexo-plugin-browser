@@ -14,7 +14,7 @@
 # resolved versions for reproducibility.
 [package]
 name        = "nexo-plugin-browser"
-version     = "0.4.0-dev"
+version     = "0.4.0"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
 edition     = "2021"
 license     = "MIT OR Apache-2.0"
@@ -44,7 +44,7 @@ default = []
 # catalogue instead of relying on a system Chrome. Off by
 # default — flip the feature AND set
 # `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` at runtime to enable.
-auto-download = ["dep:chrome-for-testing"]
+auto-download = ["dep:zip", "dep:dirs"]
 
 [dependencies]
 tokio             = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
@@ -80,18 +80,16 @@ nexo-broker       = { version = "0.1.4", path = "../proyecto/crates/broker" }
 nexo-cdp          = "0.1.0"
 nexo-config       = { version = "0.1.8", path = "../proyecto/crates/config" }
 
-# 0.4.0 — opt-in Tier 0 browser discovery. When the
-# `auto-download` feature is on AND the runtime env var
-# `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` is set, the launcher
-# downloads `chrome-headless-shell` for the running platform
-# and uses it instead of relying on a system-installed Chrome.
-# Off by default — system discovery stays the production path.
-# Path dep against the sibling repo because chrome-for-testing
-# is not on crates.io yet (and the operator can `cargo install`
-# this plugin from crates.io with the feature off; turning it
-# on requires the sibling checkout, which is acceptable for an
-# experimental opt-in).
-chrome-for-testing = { path = "../chrome-for-testing-rs", optional = true }
+# 0.4.0 — opt-in Tier 0 browser discovery via the embedded
+# `auto_download` module. When the `auto-download` feature is
+# on AND `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` is set, the
+# launcher fetches `chrome-headless-shell` from Google's
+# chrome-for-testing CDN, extracts to the user cache, and
+# launches that binary. zip = unzip support; dirs = locating
+# the platform-appropriate user cache root (XDG / macOS /
+# Windows).
+zip                = { version = "2", optional = true }
+dirs               = { version = "5", optional = true }
 
 # Follow-up `browser.auto_discovery.subscriber` — broker subscriber
 # loop wiring. rustls crypto provider install required for the NATS

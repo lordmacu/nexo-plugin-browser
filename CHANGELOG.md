@@ -3,21 +3,20 @@
 All notable changes to `nexo-plugin-browser` are documented here.
 The project adheres to [Semantic Versioning](https://semver.org).
 
-## [0.4.0-dev] — 2026-05-16
+## [0.4.0] — 2026-05-16
 
 ### Added
 
 - **Tier 0 auto-download discovery (opt-in).** When the
   `auto-download` cargo feature is on **and** the runtime env
   var `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` is set, the plugin
-  resolves its browser from
-  [`chrome-for-testing`](https://github.com/lordmacu/chrome-for-testing-rs)
-  — Google's officially-published `chrome-headless-shell`,
-  downloaded once on first launch and cached under
-  `$XDG_CACHE_HOME/chrome-for-testing/<version>/`. Soft-fails
-  back to system discovery on network outage so a flaky first
-  run doesn't block the plugin if a system Chrome is on
-  `$PATH`.
+  downloads Google's officially-published
+  `chrome-headless-shell` for the running platform on first
+  launch and caches it under
+  `$XDG_CACHE_HOME/nexo-plugin-browser/chrome-for-testing/<version>/`.
+  Soft-fails back to system discovery on network outage so a
+  flaky first run doesn't block the plugin if a system Chrome
+  is on `$PATH`.
 
   Both gates intentional:
     - cargo feature controls whether the dep compiles in at
@@ -27,7 +26,20 @@ The project adheres to [Semantic Versioning](https://semver.org).
       without rebuilding.
 
   Cross-platform by construction — same path resolves
-  linux64 / mac-x64 / mac-arm64 / win64 / win32.
+  linux64 / mac-x64 / mac-arm64 / win64 / win32. Pulled
+  from Google's `chrome-for-testing-public` CDN over the
+  catalogue at
+  `https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json`.
+
+  Cache layout:
+  ```
+  $XDG_CACHE_HOME/nexo-plugin-browser/chrome-for-testing/
+  └── <version>/                                e.g. 148.0.7778.167
+      └── chrome-headless-shell-<platform>/
+          └── chrome-headless-shell             (binary; .exe on Windows)
+  ```
+
+  Override the cache root with `NEXO_BROWSER_CACHE=/some/path`.
 
 ### Internal
 
@@ -38,17 +50,21 @@ The project adheres to [Semantic Versioning](https://semver.org).
   falling back to `find_chrome_executable()`. Cargo-feature-
   gated so the default build is byte-identical to 0.3.x.
 
+- New module `src/auto_download/` (vendored, ~200 LOC: a
+  `Platform` enum, a `Manager` that fetches the JSON
+  catalogue, downloads + extracts the zip, chmods the
+  binary). No external crate dep — the logic lives inside
+  the plugin so crates.io publish stays self-contained.
+
 - New integration test `tests/auto_download.rs` (gated on
   `NEXO_BROWSER_LIVE_TESTS=1`, `--features auto-download`)
   exercises the full Tier 0 → spawn → ws-url chain.
 
 ### Dependency
 
-- `chrome-for-testing` 0.1 (optional, path dep against
-  `../chrome-for-testing-rs/`). Not on crates.io yet; the
-  published plugin tarball doesn't include this dep unless
-  the consumer explicitly enables the feature with the
-  sibling repo checked out.
+- New optional deps behind the `auto-download` feature:
+  `zip` (extraction) and `dirs` (platform-appropriate cache
+  root). Both inert when the feature is off.
 
 ## [0.3.0] — 2026-05-15
 

@@ -297,7 +297,7 @@ async fn try_auto_download() -> Option<BrowserExecutable> {
         if std::env::var("NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD").as_deref() != Ok("1") {
             return None;
         }
-        match chrome_for_testing::ensure_chrome_headless_shell().await {
+        match crate::auto_download::ensure_chrome_headless_shell().await {
             Ok(path) => {
                 return Some(BrowserExecutable {
                     kind: BrowserKind::Chromium,
