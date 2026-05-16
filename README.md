@@ -34,7 +34,15 @@ Other channels (Docker / Termux / source): see the
 
 ```bash
 # 1. Install the binary from crates.io.
+#
+#    Default: relies on a system-installed Chrome / Chromium /
+#    Edge for the actual browser engine (see §Browser auto-detect).
 cargo install nexo-plugin-browser
+
+#    Alternative: enable auto-download so the plugin fetches
+#    Google's chrome-headless-shell on first launch — no system
+#    Chrome required. See §Auto-download below.
+# cargo install nexo-plugin-browser --features auto-download
 
 # 2. Drop the binary + manifest into a directory the daemon's
 #    `plugins.discovery.search_paths` covers.
@@ -163,6 +171,78 @@ set NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path to override
 it to a path that doesn't exist, the plugin errors out with
 `NEXO_PLUGIN_BROWSER_EXECUTABLE points to non-existent path:
 <path>` rather than silently falling through to auto-detect.
+
+## Auto-download (Tier 0, opt-in, since 0.4.0)
+
+When the operator wants the plugin to "just work" on a fresh
+machine without installing a system Chrome first, the
+`auto-download` cargo feature pulls Google's officially
+published `chrome-headless-shell` on first launch and caches
+it under the user cache directory. Subsequent runs hit the
+cache and start in <200 ms.
+
+### Enabling
+
+Two gates — both must be set for Tier 0 to activate:
+
+1. **Compile-time:** install the plugin with the feature:
+
+   ```bash
+   cargo install nexo-plugin-browser --features auto-download
+   ```
+
+2. **Runtime:** export the env var when starting the daemon:
+
+   ```bash
+   NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1 nexo --config ~/.config/nexo/agents.yaml
+   ```
+
+With both on, the discovery chain becomes:
+
+| Tier | Source | Notes |
+|---|---|---|
+| **0** | Auto-downloaded `chrome-headless-shell` | Cached under `$XDG_CACHE_HOME/nexo-plugin-browser/chrome-for-testing/<version>/`. Soft-falls through on network error. |
+| **1** | Bundled candidate paths | Same as before. |
+| **2** | `$PATH` lookup | Same as before. |
+
+### Platform support
+
+`chrome-headless-shell` is published by Google for five desktop
+targets. The plugin downloads the matching zip automatically:
+
+| Target | Status |
+|---|---|
+| Linux x86_64 | ✅ |
+| macOS x86_64 (Intel) | ✅ |
+| macOS aarch64 (Apple Silicon) | ✅ |
+| Windows x64 | ✅ |
+| Windows x86 (32-bit) | ✅ |
+| Linux aarch64 | ❌ Google doesn't publish a build |
+| Windows aarch64 | ❌ Google doesn't publish a build |
+| Android / iOS | ❌ Use the system WebView |
+
+On unsupported targets the Tier 0 helper returns gracefully and
+Tier 1+2 system discovery takes over.
+
+### Cache layout + override
+
+```
+$XDG_CACHE_HOME/nexo-plugin-browser/chrome-for-testing/
+└── <version>/                                e.g. 148.0.7778.167
+    └── chrome-headless-shell-<platform>/
+        └── chrome-headless-shell             (binary; .exe on Windows)
+```
+
+Override the cache root with `NEXO_BROWSER_CACHE=/some/path`.
+First launch downloads ~85-120 MB depending on platform (Linux
+~118 MB, mac-arm64 ~85 MB). The zip is removed after extract.
+
+### Soft failure
+
+If the JSON catalogue is unreachable (no internet, corporate
+firewall, etc.), Tier 0 logs a warning at
+`target=browser.discovery` and falls through to Tier 1+2 so a
+system-installed Chrome still rescues the launch.
 
 ## Direct env override (advanced)
 
