@@ -3,6 +3,53 @@
 All notable changes to `nexo-plugin-browser` are documented here.
 The project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.4.0-dev] — 2026-05-16
+
+### Added
+
+- **Tier 0 auto-download discovery (opt-in).** When the
+  `auto-download` cargo feature is on **and** the runtime env
+  var `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` is set, the plugin
+  resolves its browser from
+  [`chrome-for-testing`](https://github.com/lordmacu/chrome-for-testing-rs)
+  — Google's officially-published `chrome-headless-shell`,
+  downloaded once on first launch and cached under
+  `$XDG_CACHE_HOME/chrome-for-testing/<version>/`. Soft-fails
+  back to system discovery on network outage so a flaky first
+  run doesn't block the plugin if a system Chrome is on
+  `$PATH`.
+
+  Both gates intentional:
+    - cargo feature controls whether the dep compiles in at
+      all (default off — the published plugin tarball stays
+      slim).
+    - env var lets operators flip behaviour at runtime
+      without rebuilding.
+
+  Cross-platform by construction — same path resolves
+  linux64 / mac-x64 / mac-arm64 / win64 / win32.
+
+### Internal
+
+- Discovery refactored from a two-tier (auto-detect +
+  override) into a three-tier shape (Tier 0 auto-download,
+  Tier 1+2 auto-detect, override). `ChromeLauncher::launch`
+  branches via the new `try_auto_download()` helper before
+  falling back to `find_chrome_executable()`. Cargo-feature-
+  gated so the default build is byte-identical to 0.3.x.
+
+- New integration test `tests/auto_download.rs` (gated on
+  `NEXO_BROWSER_LIVE_TESTS=1`, `--features auto-download`)
+  exercises the full Tier 0 → spawn → ws-url chain.
+
+### Dependency
+
+- `chrome-for-testing` 0.1 (optional, path dep against
+  `../chrome-for-testing-rs/`). Not on crates.io yet; the
+  published plugin tarball doesn't include this dep unless
+  the consumer explicitly enables the feature with the
+  sibling repo checked out.
+
 ## [0.3.0] — 2026-05-15
 
 Multi-instance release. Operators can declare N browser sessions

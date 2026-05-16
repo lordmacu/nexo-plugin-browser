@@ -14,7 +14,7 @@
 # resolved versions for reproducibility.
 [package]
 name        = "nexo-plugin-browser"
-version     = "0.3.2"
+version     = "0.4.0-dev"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
 edition     = "2021"
 license     = "MIT OR Apache-2.0"
@@ -36,6 +36,15 @@ path = "src/main.rs"
 name = "tool_latency"
 path = "benches/tool_latency.rs"
 harness = false
+
+[features]
+default = []
+# Opt-in Tier 0 of browser discovery: download
+# `chrome-headless-shell` from Google's chrome-for-testing
+# catalogue instead of relying on a system Chrome. Off by
+# default — flip the feature AND set
+# `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` at runtime to enable.
+auto-download = ["dep:chrome-for-testing"]
 
 [dependencies]
 tokio             = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
@@ -71,6 +80,19 @@ nexo-broker       = { version = "0.1.4", path = "../proyecto/crates/broker" }
 nexo-cdp          = "0.1.0"
 nexo-config       = { version = "0.1.8", path = "../proyecto/crates/config" }
 
+# 0.4.0 — opt-in Tier 0 browser discovery. When the
+# `auto-download` feature is on AND the runtime env var
+# `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` is set, the launcher
+# downloads `chrome-headless-shell` for the running platform
+# and uses it instead of relying on a system-installed Chrome.
+# Off by default — system discovery stays the production path.
+# Path dep against the sibling repo because chrome-for-testing
+# is not on crates.io yet (and the operator can `cargo install`
+# this plugin from crates.io with the feature off; turning it
+# on requires the sibling checkout, which is acceptable for an
+# experimental opt-in).
+chrome-for-testing = { path = "../chrome-for-testing-rs", optional = true }
+
 # Follow-up `browser.auto_discovery.subscriber` — broker subscriber
 # loop wiring. rustls crypto provider install required for the NATS
 # TLS path (mirrors telegram + whatsapp plugins).
@@ -90,6 +112,7 @@ libc        = "0.2"
 assert_cmd  = "2"
 serial_test = "3"
 tempfile    = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Step 8 of browser-multi-instance — manifest parse coverage. Uses
 # the path dep against the in-tree daemon workspace so manifest
 # schema changes land lock-step with this plugin.

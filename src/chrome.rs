@@ -101,30 +101,50 @@ pub struct ChromeLauncher;
 
 impl ChromeLauncher {
     pub async fn launch(config: &BrowserConfig) -> anyhow::Result<RunningChrome> {
-        // Resolve the browser via the two-tier (bundled candidates
-        // + PATH) discovery in `chrome::discovery`. The override
-        // branch wraps the operator-supplied path in a `Custom`
-        // kind so the log line below is deterministic regardless
-        // of which path the caller took.
+        // Resolve the browser via a three-tier strategy:
+        //   Tier 0 (auto-download, opt-in)
+        //     — chrome-for-testing managed binary under the
+        //       user cache. Gated on the `auto-download` cargo
+        //       feature AND the `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1`
+        //       runtime env var. Off by default; flip both to opt in.
+        //   Tier 1+2 (auto-detect, default)
+        //     — bundled candidate paths + $PATH lookup via
+        //       `chrome::discovery`.
+        //   Override (explicit)
+        //     — `BrowserConfig.executable` is non-empty (env
+        //       surface form: `NEXO_PLUGIN_BROWSER_EXECUTABLE`).
+        //       Fails fast if the path doesn't exist.
         let (resolved, source): (BrowserExecutable, &'static str) = if config.executable.is_empty()
         {
-            // Auto-detect via the two-tier resolver. On `Err` the
-            // resolver hands back the full searched-paths list so
-            // the operator's actionable hint quotes every probe
-            // site.
-            let exe = find_chrome_executable().map_err(|e| match &e {
+            // Tier 0 — auto-download. Only fires when the
+            // `auto-download` cargo feature is on AND the
+            // runtime env var is set. Soft-errors fall through
+            // to Tier 1+2 so a network outage on first launch
+            // doesn't block the plugin if a system Chrome is
+            // sitting on $PATH.
+            if let Some(exe) = try_auto_download().await {
+                (exe, "chrome-for-testing")
+            } else {
+                // Tier 1+2 — auto-detect via the two-tier resolver.
+                // On `Err` the resolver hands back the full searched-
+                // paths list so the operator's actionable hint
+                // quotes every probe site.
+                let exe = find_chrome_executable().map_err(|e| match &e {
                 DiscoveryError::NotFound { searched } => anyhow!(
                     "no Chrome/Chromium/Edge executable found — searched {} location(s):\n  {}\nset \
-                     NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path to override",
+                     NEXO_PLUGIN_BROWSER_EXECUTABLE to an absolute path to override, or build \
+                     with `--features auto-download` + `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1` \
+                     to fetch chrome-headless-shell automatically",
                     searched.len(),
                     searched.join("\n  "),
                 ),
                 // `OverrideMissing` only originates from the
                 // override branch below; the auto-detect arm
                 // can't produce it.
-                DiscoveryError::OverrideMissing { .. } => anyhow!(e.to_string()),
-            })?;
-            (exe, "auto-detect")
+                    DiscoveryError::OverrideMissing { .. } => anyhow!(e.to_string()),
+                })?;
+                (exe, "auto-detect")
+            }
         } else {
             // Fail-fast when an explicit override points at a
             // missing path. Otherwise we'd fall through to spawn
@@ -257,6 +277,45 @@ async fn wait_for_devtools_url(
             return Ok(rest.trim().to_string());
         }
     }
+}
+
+/// Tier 0 of the discovery flow: when the `auto-download` cargo
+/// feature is on **and** the `NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD=1`
+/// env var is set, fetch (or reuse from cache) Google's
+/// `chrome-headless-shell` for the running platform via the
+/// `chrome-for-testing` crate.
+///
+/// Both gates intentional — the cargo feature controls whether
+/// the dep is even compiled in, and the env var lets operators
+/// flip behaviour without rebuilding the plugin. Returns `None`
+/// when either gate is off OR the download soft-fails (network
+/// outage etc.), letting `launch()` fall through to system
+/// discovery.
+async fn try_auto_download() -> Option<BrowserExecutable> {
+    #[cfg(feature = "auto-download")]
+    {
+        if std::env::var("NEXO_PLUGIN_BROWSER_AUTO_DOWNLOAD").as_deref() != Ok("1") {
+            return None;
+        }
+        match chrome_for_testing::ensure_chrome_headless_shell().await {
+            Ok(path) => {
+                return Some(BrowserExecutable {
+                    kind: BrowserKind::Chromium,
+                    path,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "browser.discovery",
+                    error = %e,
+                    "auto-download (Tier 0) failed; falling back to system discovery"
+                );
+                return None;
+            }
+        }
+    }
+    #[cfg(not(feature = "auto-download"))]
+    None
 }
 
 #[cfg(test)]
