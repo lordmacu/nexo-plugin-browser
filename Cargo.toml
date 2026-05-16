@@ -14,7 +14,7 @@
 # resolved versions for reproducibility.
 [package]
 name        = "nexo-plugin-browser"
-version     = "0.4.1"
+version     = "0.4.2"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
 edition     = "2021"
 license     = "MIT OR Apache-2.0"
@@ -72,13 +72,12 @@ uuid              = { version = "1", features = ["serde", "v4"] }
 # separator, and registered shortcuts.
 which             = "7"
 
+# Phase 81.20.x F-portable — framework deps from crates.io only.
 # Slim dep set — only what the subprocess actually needs.
-# All four resolve from crates.io alone; no proyecto sibling
-# checkout required for an external operator's `cargo install`.
-nexo-microapp-sdk = { version = "0.1.18", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
-nexo-broker       = { version = "0.1.4", path = "../proyecto/crates/broker" }
+nexo-microapp-sdk = { version = "0.1.18", features = ["plugin"] }
+nexo-broker       = "0.1.5"
 nexo-cdp          = "0.1.0"
-nexo-config       = { version = "0.1.8", path = "../proyecto/crates/config" }
+nexo-config       = "0.1.9"
 
 # 0.4.0 — opt-in Tier 0 browser discovery via the embedded
 # `auto_download` module. When the `auto-download` feature is
@@ -114,7 +113,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Step 8 of browser-multi-instance — manifest parse coverage. Uses
 # the path dep against the in-tree daemon workspace so manifest
 # schema changes land lock-step with this plugin.
-nexo-plugin-manifest = { path = "../proyecto/crates/plugin-manifest" }
+nexo-plugin-manifest = "0.1.5"
 
 [profile.release]
 opt-level = 3
