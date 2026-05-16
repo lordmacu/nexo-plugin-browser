@@ -14,7 +14,7 @@
 # resolved versions for reproducibility.
 [package]
 name        = "nexo-plugin-browser"
-version     = "0.4.0"
+version     = "0.4.1"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (out-of-tree subprocess)."
 edition     = "2021"
 license     = "MIT OR Apache-2.0"
@@ -75,7 +75,7 @@ which             = "7"
 # Slim dep set — only what the subprocess actually needs.
 # All four resolve from crates.io alone; no proyecto sibling
 # checkout required for an external operator's `cargo install`.
-nexo-microapp-sdk = { version = "0.1.17", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
+nexo-microapp-sdk = { version = "0.1.18", path = "../proyecto/crates/microapp-sdk", features = ["plugin"] }
 nexo-broker       = { version = "0.1.4", path = "../proyecto/crates/broker" }
 nexo-cdp          = "0.1.0"
 nexo-config       = { version = "0.1.8", path = "../proyecto/crates/config" }

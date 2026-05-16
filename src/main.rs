@@ -319,6 +319,13 @@ where
 
 #[tokio::main]
 async fn main() -> nexo_microapp_sdk::Result<()> {
+    // Stage 8 cargo-install ergonomics. When the daemon's binary-
+    // mode discovery walker probes us with
+    // `nexo-plugin-browser --print-manifest` we emit the bundled
+    // TOML to stdout and exit 0 BEFORE init / broker wiring — the
+    // walker needs only the manifest bytes.
+    nexo_microapp_sdk::plugin::print_manifest_if_requested(MANIFEST);
+
     nexo_microapp_sdk::init_logging_from_env("nexo-plugin-browser");
     // rustls 0.23 requires an explicit process-wide CryptoProvider
     // before `ClientConfig::builder()` can return successfully.

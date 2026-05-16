@@ -19,7 +19,7 @@
 
 [plugin]
 id = "browser"
-version = "0.3.2"
+version = "0.4.1"
 name = "Browser Automation"
 description = "Chrome DevTools Protocol (CDP) browser plugin for Nexo agents (multi-instance, out-of-tree subprocess)."
 min_nexo_version = ">=0.1.0"
