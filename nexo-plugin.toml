@@ -186,3 +186,56 @@ schema = '''{
 
 [plugin.credentials_schema]
 enabled = false
+
+# ────────────────────────────────────────────────────────────────
+# Phase 99 — admin UI contribution (Mode A, declarative).
+# Static config screen; daemon synthesises the form + validates a
+# save against `[plugin.config_schema]` (merged) + hot-applies.
+# Needs nexo-plugin-manifest >= 0.1.8.
+# ────────────────────────────────────────────────────────────────
+[plugin.admin_ui]
+schema_version = 1
+mode           = "declarative"
+describe       = false
+
+[[plugin.admin_ui.contributions]]
+id     = "browser"
+slot   = "plugin.browser.root"
+label  = "Browser"
+icon   = "globe"
+order  = 1000
+screen = "settings"
+
+[[plugin.admin_ui.screens]]
+id    = "settings"
+title = "Browser Settings"
+
+[[plugin.admin_ui.screens.fields]]
+key   = "instance"
+type  = "text"
+label = "Instance label"
+
+[[plugin.admin_ui.screens.fields]]
+key   = "headless"
+type  = "toggle"
+label = "Headless"
+
+[[plugin.admin_ui.screens.fields]]
+key   = "executable"
+type  = "text"
+label = "Chrome executable path"
+
+[[plugin.admin_ui.screens.fields]]
+key   = "cdp_url"
+type  = "text"
+label = "CDP URL"
+
+[[plugin.admin_ui.screens.fields]]
+key   = "window_width"
+type  = "number"
+label = "Window width"
+
+[[plugin.admin_ui.screens.fields]]
+key   = "window_height"
+type  = "number"
+label = "Window height"

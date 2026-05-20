@@ -113,7 +113,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Step 8 of browser-multi-instance — manifest parse coverage. Uses
 # the path dep against the in-tree daemon workspace so manifest
 # schema changes land lock-step with this plugin.
-nexo-plugin-manifest = "0.1.5"
+nexo-plugin-manifest = "0.1.8"
 
 [profile.release]
 opt-level = 3
